@@ -57,12 +57,23 @@ export async function POST(req) {
 
   const usageRef = db.collection('users').doc(decoded.uid).collection('aiUsage');
   const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
-  const countSnap = await usageRef.where('createdAt', '>=', windowStart).count().get();
-  if (countSnap.data().count >= RATE_LIMIT_MAX) {
-    return NextResponse.json(
-      { error: `Rate limit reached (${RATE_LIMIT_MAX} requests/hour). Try again shortly.` },
-      { status: 429 },
-    );
+  try {
+    const countSnap = await usageRef.where('createdAt', '>=', windowStart).count().get();
+    if (countSnap.data().count >= RATE_LIMIT_MAX) {
+      return NextResponse.json(
+        { error: `Rate limit reached (${RATE_LIMIT_MAX} requests/hour). Try again shortly.` },
+        { status: 429 },
+      );
+    }
+  } catch (e) {
+    // Fail OPEN, not closed: if Firestore is unreachable or not yet
+    // provisioned (e.g. the database hasn't been created in the Firebase
+    // Console), letting the AI request through is better than a silent,
+    // undiagnosable 500 on every single request. Rate limiting is a
+    // safety net, not core functionality — its own failure shouldn't
+    // take down the feature it's protecting. The real error is still
+    // logged so it's visible in Vercel's runtime logs.
+    console.error('Rate-limit check failed (continuing without it):', e);
   }
 
   let body;
