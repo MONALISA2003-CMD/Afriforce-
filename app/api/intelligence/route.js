@@ -112,7 +112,22 @@ export async function POST(req) {
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
       console.error('Gemini API error:', res.status, errText);
-      return NextResponse.json({ error: 'AI request failed.' }, { status: 502 });
+      // Surfaced to the client deliberately: Gemini's error body describes
+      // *why* (invalid key, model not found, quota, safety block) and
+      // never echoes the key itself, so this is safe to show and makes
+      // failures self-diagnosable from the app's own error screen instead
+      // of requiring a trip to Vercel's log viewer.
+      let detail = errText.slice(0, 300);
+      try {
+        const parsed = JSON.parse(errText);
+        detail = parsed?.error?.message || detail;
+      } catch (e) {
+        // errText wasn't JSON — use the raw (truncated) text as-is.
+      }
+      return NextResponse.json(
+        { error: `Gemini request failed (HTTP ${res.status}): ${detail}` },
+        { status: 502 },
+      );
     }
 
     const data = await res.json();

@@ -177,24 +177,38 @@ async function callOnce(system, prompt) {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || 'AI request failed');
+    throw new Error(body.error || `AI request failed (HTTP ${res.status})`);
   }
   const data = await res.json();
   const cleaned = (data.text || '').replace(/```json/gi, '').replace(/```/g, '').trim();
   return JSON.parse(cleaned);
 }
 
+// Best-effort diagnostic: the last error message from a failed AI call,
+// so a failure screen can show *why* rather than just "something went
+// wrong" — genuinely useful when the only way to see server logs is a
+// phone browser. This is intentionally simple (a single shared variable,
+// not per-call-site tracking) — if two AI calls fail around the same
+// moment, whichever finishes last wins. That's an acceptable trade for a
+// diagnostic aid; it's not relied on for correctness anywhere.
+let lastAiError = null;
+
 async function askAfriforce(system, prompt) {
   try {
-    return await callOnce(system, prompt);
+    const result = await callOnce(system, prompt);
+    lastAiError = null;
+    return result;
   } catch (e) {
     // One safe retry — a single malformed response or transient network
     // error shouldn't be treated the same as Afriforce Intelligence
     // actually being unavailable.
     try {
       await new Promise((r) => setTimeout(r, 600));
-      return await callOnce(system, prompt);
+      const result = await callOnce(system, prompt);
+      lastAiError = null;
+      return result;
     } catch (e2) {
+      lastAiError = e2?.message || 'Unknown error';
       console.error('Afriforce Intelligence error (after retry):', e2);
       return null;
     }
@@ -258,10 +272,15 @@ function LoadingSequence() {
   );
 }
 
-function ErrorState({ message, onRetry, onBack }) {
+function ErrorState({ message, detail, onRetry, onBack }) {
   return (
     <div className="af-error-state" role="alert">
       <p>{message || "Afriforce Intelligence is temporarily unavailable. Your information is safe."}</p>
+      {detail && (
+        <p className="af-error-detail">
+          Technical detail (for troubleshooting): <code>{detail}</code>
+        </p>
+      )}
       <div className="af-error-actions">
         {onRetry && <button className="af-btn af-btn-primary" onClick={onRetry}>Try again</button>}
         {onBack && <button className="af-btn af-btn-ghost" onClick={onBack}>Go back</button>}
@@ -1404,6 +1423,7 @@ export default function App() {
 
   const [loaded, setLoaded] = useState(false);
   const [lastOnboardingIntake, setLastOnboardingIntake] = useState(null);
+  const [genErrorDetail, setGenErrorDetail] = useState(null);
   const [employerError, setEmployerError] = useState(false);
   const [bizError, setBizError] = useState(false);
 
@@ -1528,6 +1548,7 @@ export default function App() {
 
     if (!profile && !opps) {
       setLastOnboardingIntake(src);
+      setGenErrorDetail(lastAiError);
       setScreen('gen-error');
       return;
     }
@@ -1907,6 +1928,8 @@ export default function App() {
 
         .af-error-state { text-align: center; padding: 60px 24px; }
         .af-error-state p { font-size: 14px; margin-bottom: 18px; }
+        .af-error-detail { font-size: 12px; color: var(--muted); text-align: left; background: var(--paper); border: 1px solid var(--stone-line); border-radius: 8px; padding: 12px; }
+        .af-error-detail code { display: block; margin-top: 4px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; color: var(--ink); overflow-wrap: break-word; }
         .af-error-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
         .af-inline-error { font-size: 13px; color: #A5432E; margin-bottom: 10px; }
 
@@ -2074,6 +2097,7 @@ export default function App() {
       {screen === 'gen-error' && (
         <ErrorState
           message="We couldn't put your profile together just now. Your answers are safe — nothing was lost."
+          detail={genErrorDetail}
           onRetry={() => completeOnboarding(lastOnboardingIntake || intake)}
         />
       )}
