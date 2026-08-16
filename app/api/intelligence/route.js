@@ -1,21 +1,36 @@
 import { NextResponse } from 'next/server';
 import { db, verifyRequest } from '@/lib/firebaseAdmin';
 
-// Afriforce Intelligence gateway, now calling Gemini instead of Claude.
-// This remains the single place GEMINI_API_KEY is read — it never
-// reaches the browser. The frontend still posts {system, prompt} and
-// parses the returned text as JSON itself, so this swap didn't require
-// touching the many prompt call-sites in components/AfriforceApp.jsx.
+// Afriforce Intelligence gateway, calling Gemini. This remains the
+// single place GEMINI_API_KEY is read — it never reaches the browser.
+// The frontend still posts {system, prompt} and parses the returned
+// text as JSON itself, so provider swaps don't require touching the
+// many prompt call-sites in components/AfriforceApp.jsx.
 //
-// gemini-3.6-flash is Google's currently documented stable, GA
-// production model (ai.google.dev/gemini-api/docs/models uses it as
-// *the* example of "points to a specific stable model" — the Gemini
-// 2.x line, including 2.5, has been fully shut down). It's a fast,
-// inexpensive fit for the short JSON-generation tasks this app makes
-// (profile analysis, assessments, opportunity generation, etc.).
-// Swap MODEL below if Google ships a newer stable line, or split by
-// task if some prompts need more reasoning than others (e.g. route
-// business analysis to a Pro-tier model, keep quick lookups on Flash).
+// Key format: Google is migrating Gemini API keys from "Standard" keys
+// (AIza...) to "Auth" keys (AQ...), bound to a specific service account
+// for tighter access control. Standard keys stop working entirely in
+// September 2026. This gateway doesn't need to know or care which type
+// GEMINI_API_KEY is — both are sent the same way, via the x-goog-api-key
+// header below — so no code branching is needed, just use a current
+// Auth key as the env var value.
+//
+// gemini-3.6-flash is confirmed current in Google's supported-models
+// table (ai.google.dev/gemini-api/docs/interactions-overview) as of
+// this writing — the Gemini 2.x line, including 2.5, has been fully
+// shut down. It's a fast, inexpensive fit for the short JSON-generation
+// tasks this app makes (profile analysis, assessments, opportunity
+// generation, etc.). Swap MODEL below if Google ships a newer stable
+// line, or split by task if some prompts need more reasoning than
+// others (e.g. route business analysis to a Pro-tier model).
+//
+// This still calls the generateContent endpoint rather than Google's
+// newer Interactions API. Google states generateContent "remains fully
+// supported" even though Interactions is now the recommended default —
+// kept here deliberately since generateContent's request/response shape
+// is fully documented and verified, where Interactions' exact REST JSON
+// shape wasn't confirmable at the time this was written. Worth
+// revisiting later; don't switch without verifying the new shape first.
 const MODEL = 'gemini-3.6-flash';
 
 // Same rate-limiting caveat as before: this counts documents in

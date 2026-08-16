@@ -86,17 +86,50 @@ Open http://localhost:3000.
 
 ## Deploying (Vercel)
 
-1. Push this repo to GitHub.
-2. Import it in Vercel.
-3. Add all the env vars from `.env` (both `NEXT_PUBLIC_FIREBASE_*` and
-   the server-only `FIREBASE_*` / `GEMINI_API_KEY` ones) in Vercel's
-   Environment Variables settings. For `FIREBASE_PRIVATE_KEY`, paste it
-   exactly as it appears in `.env`, quotes and all.
+Real values for this project are already filled into `.env` in this zip
+— **but `.env` is deliberately gitignored and will not be committed**,
+including by the unzip-sync GitHub Action, if you're using that. That's
+correct behavior, not a bug: a Firebase Admin service account key
+grants full read/write/delete access to your Auth users and Firestore
+data, and GitHub's automated secret scanning (which partners with
+Google specifically to detect this credential type) will typically
+auto-revoke a key like this within minutes of it landing in a public
+repo — so committing it wouldn't just be risky, it would likely break
+your deployment shortly after it started working.
+
+The correct one-time setup, which still gets you "deploy once, every
+push after that just works":
+
+1. Push this repo to GitHub (the zip's `.gitignore` keeps `.env` out of
+   that push automatically).
+2. Import the repo in Vercel.
+3. In Vercel's **Environment Variables** settings, add every value from
+   your local `.env` file **once** — open `.env` on your phone/computer
+   and copy each line's value across (`NEXT_PUBLIC_FIREBASE_*`,
+   `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`
+   — paste that one exactly as it appears, quotes and all — and
+   `GEMINI_API_KEY`). This is a Vercel dashboard action, not a git
+   commit, so it never touches your repo or its history.
 4. Deploy.
+
+From here on, every future `git push` (including from the unzip-sync
+workflow) redeploys automatically using those same stored variables —
+you don't re-enter them. That's the actual "set once" mechanism; a
+committed `.env` file would give you the same convenience with a real
+chance of an auto-revoked key and a compromised Firestore database
+attached.
 
 There's no database migration step — Firestore collections are created
 implicitly on first write. Any other Node hosting (Railway, Render,
-Fly.io) works the same way: set the same env vars and deploy.
+Fly.io) works the same way: set the same env vars in that platform's
+dashboard once, and deploy.
+
+**Since these specific credentials have now passed through this chat**,
+if this project moves beyond quick prototyping, regenerate both the
+Firebase service account key (Project settings → Service accounts →
+Generate new private key, then delete the old one) and the Gemini key
+(AI Studio → delete this key, create a new one) before it matters —
+takes under a minute for both.
 
 ## Promoting an admin
 
