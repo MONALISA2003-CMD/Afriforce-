@@ -166,7 +166,16 @@ export async function POST(req) {
       return NextResponse.json({ error: 'The response was blocked by safety filters.' }, { status: 502 });
     }
 
-    const text = (candidate.content?.parts || []).map((p) => p.text || '').join('\n');
+    // Filter out "thought" parts explicitly: Gemini 3.x models can
+    // include internal reasoning as separate parts alongside the actual
+    // answer (flagged with part.thought === true). Concatenating those
+    // in with the real output is exactly what was producing malformed
+    // JSON on the client (a stray fragment before or after the intended
+    // answer). Only non-thought parts are the actual response.
+    const text = (candidate.content?.parts || [])
+      .filter((p) => !p.thought)
+      .map((p) => p.text || '')
+      .join('\n');
     return NextResponse.json({ text });
   } catch (e) {
     console.error('AI gateway error:', e);

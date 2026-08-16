@@ -164,6 +164,52 @@ const LOADING_MESSAGES = [
 /* AI helper                                                              */
 /* ---------------------------------------------------------------------- */
 
+// Finds the JSON value in `text` most likely to be the model's actual
+// answer, tolerating stray content around or alongside it — a preamble,
+// a duplicated fragment, or (as seen in practice) a leftover empty `{}`
+// artifact from thinking content that slipped past the server-side
+// filter. Scans for *every* top-level balanced {...} / [...] span
+// (properly skipping brace/bracket characters inside quoted strings)
+// and returns the longest one: a stray artifact like `{}` is trivially
+// small, while the real answer is substantial, so length is a reliable
+// way to tell them apart without knowing the expected shape in advance.
+function extractJsonSlice(text) {
+  const spans = [];
+  let i = 0;
+  while (i < text.length) {
+    const relativeStart = text.slice(i).search(/[{[]/);
+    if (relativeStart === -1) break;
+    const start = i + relativeStart;
+    const open = text[start];
+    const close = open === '{' ? '}' : ']';
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let end = -1;
+    for (let j = start; j < text.length; j++) {
+      const ch = text[j];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') { inString = true; continue; }
+      if (ch === open) depth++;
+      else if (ch === close) {
+        depth -= 1;
+        if (depth === 0) { end = j; break; }
+      }
+    }
+    if (end === -1) break; // Nothing balances from here on — stop scanning.
+    spans.push(text.slice(start, end + 1));
+    i = end + 1;
+  }
+  if (!spans.length) throw new Error('No JSON value found in AI response');
+  spans.sort((a, b) => b.length - a.length);
+  return spans[0];
+}
+
 async function callOnce(system, prompt) {
   // Calls our own server-side AI Gateway (app/api/intelligence/route.js,
   // which talks to Gemini) rather than any AI provider directly — the API
@@ -181,7 +227,13 @@ async function callOnce(system, prompt) {
   }
   const data = await res.json();
   const cleaned = (data.text || '').replace(/```json/gi, '').replace(/```/g, '').trim();
-  return JSON.parse(cleaned);
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    // Full response wasn't clean JSON on its own — try pulling just the
+    // first balanced JSON value out of it before giving up entirely.
+    return JSON.parse(extractJsonSlice(cleaned));
+  }
 }
 
 // Best-effort diagnostic: the last error message from a failed AI call,
