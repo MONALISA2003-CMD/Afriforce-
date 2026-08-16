@@ -1,0 +1,109 @@
+import { NextResponse } from 'next/server';
+import { db, verifyRequest } from '@/lib/firebaseAdmin';
+
+// Afriforce Intelligence gateway, now calling Gemini instead of Claude.
+// This remains the single place GEMINI_API_KEY is read — it never
+// reaches the browser. The frontend still posts {system, prompt} and
+// parses the returned text as JSON itself, so this swap didn't require
+// touching the many prompt call-sites in components/AfriforceApp.jsx.
+//
+// gemini-3.6-flash is Google's currently documented stable, GA
+// production model (ai.google.dev/gemini-api/docs/models uses it as
+// *the* example of "points to a specific stable model" — the Gemini
+// 2.x line, including 2.5, has been fully shut down). It's a fast,
+// inexpensive fit for the short JSON-generation tasks this app makes
+// (profile analysis, assessments, opportunity generation, etc.).
+// Swap MODEL below if Google ships a newer stable line, or split by
+// task if some prompts need more reasoning than others (e.g. route
+// business analysis to a Pro-tier model, keep quick lookups on Flash).
+const MODEL = 'gemini-3.6-flash';
+
+// Same rate-limiting caveat as before: this counts documents in
+// Firestore rather than using an atomic counter, so it's a best-effort
+// limiter, not an airtight one — two concurrent requests near the
+// boundary could both slip through. Fine for an MVP deploy; swap in a
+// dedicated limiter (e.g. Upstash Redis) before this handles real
+// traffic.
+const RATE_LIMIT_MAX = 60;
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
+export async function POST(req) {
+  const decoded = await verifyRequest(req);
+  if (!decoded) {
+    return NextResponse.json({ error: 'Not signed in.' }, { status: 401 });
+  }
+
+  if (!process.env.GEMINI_API_KEY) {
+    return NextResponse.json(
+      { error: 'GEMINI_API_KEY is not configured on the server.' },
+      { status: 500 },
+    );
+  }
+
+  const usageRef = db.collection('users').doc(decoded.uid).collection('aiUsage');
+  const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
+  const countSnap = await usageRef.where('createdAt', '>=', windowStart).count().get();
+  if (countSnap.data().count >= RATE_LIMIT_MAX) {
+    return NextResponse.json(
+      { error: `Rate limit reached (${RATE_LIMIT_MAX} requests/hour). Try again shortly.` },
+      { status: 429 },
+    );
+  }
+
+  let body;
+  try {
+    body = await req.json();
+  } catch (e) {
+    return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
+  }
+
+  const { system, prompt } = body || {};
+  if (!prompt) {
+    return NextResponse.json({ error: 'A prompt is required.' }, { status: 400 });
+  }
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': process.env.GEMINI_API_KEY,
+        },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+          generationConfig: { maxOutputTokens: 1024 },
+        }),
+      },
+    );
+
+    // Record usage regardless of outcome — failed calls still cost quota
+    // pressure and should count against the limit.
+    usageRef.add({ createdAt: new Date().toISOString() }).catch(() => {});
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.error('Gemini API error:', res.status, errText);
+      return NextResponse.json({ error: 'AI request failed.' }, { status: 502 });
+    }
+
+    const data = await res.json();
+    const candidate = data.candidates?.[0];
+
+    if (!candidate) {
+      console.error('Gemini returned no candidates:', JSON.stringify(data).slice(0, 500));
+      return NextResponse.json({ error: 'AI request failed.' }, { status: 502 });
+    }
+    if (candidate.finishReason === 'SAFETY' || candidate.finishReason === 'PROHIBITED_CONTENT') {
+      return NextResponse.json({ error: 'The response was blocked by safety filters.' }, { status: 502 });
+    }
+
+    const text = (candidate.content?.parts || []).map((p) => p.text || '').join('\n');
+    return NextResponse.json({ text });
+  } catch (e) {
+    console.error('AI gateway error:', e);
+    return NextResponse.json({ error: 'AI request failed.' }, { status: 500 });
+  }
+}
