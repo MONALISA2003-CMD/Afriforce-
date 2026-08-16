@@ -1,0 +1,65 @@
+name: Unzip and sync repository
+
+on:
+  push:
+    paths:
+      - '**.zip'
+
+permissions:
+  contents: write
+
+jobs:
+  unzip-and-sync:
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Find uploaded zip file
+        id: findzip
+        run: |
+          ZIP_FILE=$(find . -maxdepth 2 -name "*.zip" -not -path "./.git/*" | head -n 1)
+          echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Extract zip to a temp folder
+        if: steps.findzip.outputs.zip_file != ''
+        run: |
+          mkdir -p /tmp/unzipped
+          unzip -o "${{ steps.findzip.outputs.zip_file }}" -d /tmp/unzipped
+
+          # If the zip contains one single top-level folder, flatten it so
+          # repo files land at the repo root instead of repo/project-name/...
+          ENTRIES=$(ls -1 /tmp/unzipped | wc -l)
+          if [ "$ENTRIES" -eq 1 ] && [ -d "/tmp/unzipped/$(ls -1 /tmp/unzipped)" ]; then
+            INNER="/tmp/unzipped/$(ls -1 /tmp/unzipped)"
+            mkdir -p /tmp/flat
+            shopt -s dotglob
+            mv "$INNER"/* /tmp/flat/
+            rm -rf /tmp/unzipped
+            mv /tmp/flat /tmp/unzipped
+          fi
+
+      - name: Replace repository contents with extracted files
+        if: steps.findzip.outputs.zip_file != ''
+        run: |
+          shopt -s dotglob
+          for item in *; do
+            if [ "$item" != ".git" ] && [ "$item" != ".github" ]; then
+              rm -rf "$item"
+            fi
+          done
+          cp -r /tmp/unzipped/. .
+
+      - name: Commit and push
+        if: steps.findzip.outputs.zip_file != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nothing changed."
+          else
+            git commit -m "Auto-unzip and sync repository contents [skip ci]"
+            git push
+          fi
