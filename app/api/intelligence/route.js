@@ -48,9 +48,30 @@ export async function POST(req) {
     return NextResponse.json({ error: 'Not signed in.' }, { status: 401 });
   }
 
-  if (!process.env.GEMINI_API_KEY) {
+  // .trim() guards against the single most common cause of this exact
+  // failure: a stray trailing space or newline from copy-pasting the key
+  // (e.g. out of a chat message or code block) into Vercel's env var
+  // field. Gemini's API rejects a key with invisible extra characters
+  // the same way it rejects a wrong one — with a generic 401, not a
+  // helpful "your key has whitespace in it" message — so this is cheap
+  // insurance even though the real fix is re-copying the key cleanly.
+  const apiKey = (process.env.GEMINI_API_KEY || '').trim();
+
+  if (!apiKey) {
     return NextResponse.json(
       { error: 'GEMINI_API_KEY is not configured on the server.' },
+      { status: 500 },
+    );
+  }
+  if (!/^(AIza|AQ\.)/.test(apiKey)) {
+    // Doesn't match either known Gemini key shape (Standard: AIza...,
+    // Auth: AQ...) — almost certainly the wrong value got pasted into
+    // this env var. Surface that immediately rather than letting it
+    // fail as an opaque 401 from Gemini.
+    return NextResponse.json(
+      {
+        error: `GEMINI_API_KEY doesn't look like a Gemini key (starts with "${apiKey.slice(0, 6)}...", ${apiKey.length} characters — expected it to start with "AIza" or "AQ."). Check what's actually saved in Vercel's Environment Variables.`,
+      },
       { status: 500 },
     );
   }
@@ -95,7 +116,7 @@ export async function POST(req) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-goog-api-key': process.env.GEMINI_API_KEY,
+          'x-goog-api-key': apiKey,
         },
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -124,8 +145,12 @@ export async function POST(req) {
       } catch (e) {
         // errText wasn't JSON — use the raw (truncated) text as-is.
       }
+      let hint = '';
+      if (res.status === 401 || res.status === 403) {
+        hint = ' Likely cause: GEMINI_API_KEY was pasted with extra whitespace, is the wrong value, or has an "Application restriction" (HTTP referrer/IP) in AI Studio/Cloud Console that blocks server-to-server calls — check the key was copied fresh from AI Studio and has no restrictions set.';
+      }
       return NextResponse.json(
-        { error: `Gemini request failed (HTTP ${res.status}): ${detail}` },
+        { error: `Gemini request failed (HTTP ${res.status}): ${detail}${hint}` },
         { status: 502 },
       );
     }
