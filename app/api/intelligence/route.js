@@ -121,7 +121,25 @@ export async function POST(req) {
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
           ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
-          generationConfig: { maxOutputTokens: 1024 },
+          generationConfig: {
+            // Gemini 3.x Flash models cannot fully disable thinking
+            // (Google's own docs: "Gemini 3 Flash and Flash-Lite...
+            // do not support full thinking-off") — the fix is
+            // thinkingLevel, which replaced the older thinkingBudget
+            // field for this model generation. "low" is the lightest
+            // level that still leaves the model able to reliably
+            // produce structured JSON for the tasks this app asks of
+            // it. Sending both thinkingLevel and thinkingBudget on
+            // the same request causes it to fail outright, so don't
+            // add thinkingBudget here even for tuning.
+            thinkingConfig: { thinkingLevel: 'low' },
+            // 1024 was too tight: thinking tokens are drawn from the
+            // same maxOutputTokens budget, so on a lightly "thinking"
+            // response there was often nothing left for the actual
+            // JSON answer — which is exactly what produced the empty
+            // response error. 2048 leaves real headroom for both.
+            maxOutputTokens: 2048,
+          },
         }),
       },
     );
@@ -165,6 +183,16 @@ export async function POST(req) {
     if (candidate.finishReason === 'SAFETY' || candidate.finishReason === 'PROHIBITED_CONTENT') {
       return NextResponse.json({ error: 'The response was blocked by safety filters.' }, { status: 502 });
     }
+    if (candidate.finishReason === 'MAX_TOKENS') {
+      const thoughts = data.usageMetadata?.thoughtsTokenCount;
+      const answer = data.usageMetadata?.candidatesTokenCount;
+      return NextResponse.json(
+        {
+          error: `Gemini hit the output token limit before finishing (thinking used ${thoughts ?? '?'} tokens, answer got ${answer ?? '?'} before being cut off). Increase maxOutputTokens in app/api/intelligence/route.js.`,
+        },
+        { status: 502 },
+      );
+    }
 
     // Filter out "thought" parts explicitly: Gemini 3.x models can
     // include internal reasoning as separate parts alongside the actual
@@ -176,6 +204,18 @@ export async function POST(req) {
       .filter((p) => !p.thought)
       .map((p) => p.text || '')
       .join('\n');
+
+    if (!text.trim()) {
+      // Caught here rather than left for the client's JSON parser to
+      // fail on an empty string with a confusing message — this is a
+      // distinct, diagnosable condition worth naming directly.
+      console.error('Gemini returned no non-thought text. Full candidate:', JSON.stringify(candidate).slice(0, 500));
+      return NextResponse.json(
+        { error: `Gemini returned an empty response (finishReason: ${candidate.finishReason || 'unknown'}).` },
+        { status: 502 },
+      );
+    }
+
     return NextResponse.json({ text });
   } catch (e) {
     console.error('AI gateway error:', e);
