@@ -2213,6 +2213,13 @@ export default function App() {
   }
 
   const hasProfile = !!econProfile;
+  // Gates the very first render against two async things resolving:
+  // Firebase determining whether anyone's signed in at all, and — for a
+  // signed-in user — this app's own profile fetch from Firestore. Without
+  // this, a returning signed-in user briefly sees the marketing landing
+  // page (the default `screen` state) before flipping to their dashboard,
+  // which reads as a bug even though nothing is actually broken.
+  const initializing = status === 'loading' || (status === 'authenticated' && !loaded);
 
   return (
     <div className="af-app">
@@ -2287,6 +2294,8 @@ export default function App() {
         .af-logo { display: flex; align-items: center; gap: 10px; }
         .af-logo-word { font-family: 'Space Grotesk', sans-serif; font-weight: 700; color: var(--ink); letter-spacing: -0.01em; }
         .af-logo-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ochre); background: #F5EEE2; border-radius: 8px; padding: 2px 7px; }
+        .af-appheader { padding: 18px 22px 0; }
+        .af-boot { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; }
 
         /* Landing — the one screen allowed to break out of the app's
            mobile-width column (see .af-app above). Content still caps
@@ -2515,6 +2524,19 @@ export default function App() {
         .af-navitem.active { color: var(--indigo); font-weight: 600; }
       `}</style>
 
+      {initializing ? (
+        <div className="af-boot">
+          <Logo size={40} wordmarkSize={22} />
+          <LoadingSequence />
+        </div>
+      ) : (
+        <>
+      {screen !== 'landing' && screen !== 'onboard' && (
+        <div className="af-appheader">
+          <Logo size={26} wordmarkSize={15} />
+        </div>
+      )}
+
       {screen === 'landing' && (
         <Landing
           onStart={() => requireAuth(() => setScreen('onboard'), ['seeker', 'admin'])}
@@ -2653,6 +2675,8 @@ export default function App() {
       )}
 
       <BottomNav screen={screen} go={setScreen} hasProfile={hasProfile && screen !== 'onboard' && screen !== 'landing' && screen !== 'generating'} />
+        </>
+      )}
     </div>
   );
 }
