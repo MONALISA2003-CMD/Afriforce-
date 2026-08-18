@@ -7,10 +7,13 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
+  sendEmailVerification,
+  sendPasswordResetEmail,
 } from 'firebase/auth';
 import {
   ArrowRight, Check, ChevronRight, X, MapPin, Clock3, Briefcase,
-  Home, Compass, User, BarChart3, Loader2, Send, RotateCcw, Store, Lightbulb
+  Home, Compass, User, Loader2, Send, RotateCcw, Store,
+  PenTool, Users, TrendingUp, ShieldCheck
 } from 'lucide-react';
 
 /* ---------------------------------------------------------------------- */
@@ -270,6 +273,43 @@ async function askAfriforce(system, prompt) {
 const SYSTEM = 'You are Afriforce Intelligence, an economic-opportunity analyst helping African users turn their skills, time and resources into real work, income or businesses. Be concrete, specific to what the person told you, warm but plain-spoken. Never guarantee income or employment. Respond with ONLY valid JSON — no markdown fences, no commentary before or after.';
 
 /* ---------------------------------------------------------------------- */
+/* Brand mark                                                              */
+/* ---------------------------------------------------------------------- */
+// A geometric mark rather than a generated image (no image-gen tool
+// available in this environment, and a hand-built SVG renders crisper
+// at every size anyway — same file works as the in-app mark and the
+// favicon). Colors are hardcoded hex rather than referencing the CSS
+// custom properties below on purpose: this exact markup is duplicated
+// into app/icon.svg for the browser favicon, which is a standalone
+// document with no access to this component's <style> block — keep
+// both in sync if the palette ever changes. Visually continues the
+// "connected nodes on a rising path" motif already used by the Thread
+// step-indicator elsewhere in the app, rather than inventing a second,
+// unrelated visual language just for the logo.
+function LogoMark({ size = 36 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect width="40" height="40" rx="10" fill="#1F3A5F" />
+      <polyline points="9,31 17,24 24,17 31,9" stroke="#FFFFFF" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
+      <circle cx="9" cy="31" r="2.3" fill="#FFFFFF" opacity="0.55" />
+      <circle cx="17" cy="24" r="2.3" fill="#FFFFFF" opacity="0.75" />
+      <circle cx="24" cy="17" r="2.5" fill="#FFFFFF" />
+      <circle cx="31" cy="9" r="3.2" fill="#B8763E" />
+    </svg>
+  );
+}
+
+function Logo({ size = 34, wordmarkSize = 19, tag }) {
+  return (
+    <div className="af-logo">
+      <LogoMark size={size} />
+      <span className="af-logo-word" style={{ fontSize: wordmarkSize }}>Afriforce</span>
+      {tag && <span className="af-logo-tag">{tag}</span>}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
 /* Small UI atoms                                                         */
 /* ---------------------------------------------------------------------- */
 
@@ -367,70 +407,118 @@ function BottomNav({ screen, go, hasProfile }) {
 /* ---------------------------------------------------------------------- */
 
 function Landing({ onStart, onTryPersona, onEmployer, onAdmin }) {
+  const pathways = [
+    { icon: Briefcase, title: 'Find a job', desc: 'Matched to what you can actually prove, not just what you claim.' },
+    { icon: PenTool, title: 'Freelance', desc: 'Turn one skill into a service, a price, and a first proposal.' },
+    { icon: Store, title: 'Start a business', desc: 'Tell us what you have — we\u2019ll find realistic ideas worth testing.' },
+    { icon: Users, title: 'Hire talent', desc: 'Describe the role, see who genuinely fits, real or preview.' },
+  ];
+  const steps = [
+    { icon: Compass, title: 'Discover', desc: "Understand what you're already good at." },
+    { icon: TrendingUp, title: 'Build', desc: 'Strengthen the skills that open doors.' },
+    { icon: MapPin, title: 'Connect', desc: 'See opportunities that actually fit you.' },
+    { icon: ArrowRight, title: 'Act', desc: 'Always know your next move.' },
+  ];
+
   return (
     <div className="af-landing">
+      <div className="af-landing-topbar">
+        <Logo size={30} wordmarkSize={17} tag="Beta" />
+      </div>
+
       <div className="af-hero">
-        <span className="af-eyebrow">Afriforce</span>
-        <h1 className="af-h1">Africa has talent.<br />Afriforce turns it into opportunity.</h1>
-        <p className="af-lead">
-          Tell us what you can do, what you have and where you want to go.
-          We'll help you find a realistic next step — a job, freelance work,
-          or a business worth trying.
-        </p>
-        <div className="af-cta-row">
-          <button className="af-btn af-btn-primary" onClick={onStart}>
-            Start your journey <ArrowRight size={16} />
-          </button>
+        <div className="af-hero-inner">
+          <span className="af-eyebrow">Powering Africa's Human Potential</span>
+          <h1 className="af-h1">Africa has talent.<br />Afriforce turns it into opportunity.</h1>
+          <p className="af-lead">
+            Tell us what you can do, what you have and where you want to go.
+            We'll help you find a realistic next step — a job, freelance work,
+            or a business worth trying.
+          </p>
+          <div className="af-cta-row">
+            <button className="af-btn af-btn-primary" onClick={onStart}>
+              Start your journey <ArrowRight size={16} />
+            </button>
+            <button className="af-btn af-btn-ghost" onClick={onEmployer}>
+              I'm hiring <Users size={16} />
+            </button>
+          </div>
+        </div>
+        <div className="af-hero-visual" aria-hidden="true">
+          <LogoMark size={120} />
         </div>
       </div>
 
-      <div className="af-personas">
-        <span className="af-label">Development data — sample profiles for testing</span>
-        <p className="af-hint" style={{ marginTop: 4, marginBottom: 12 }}>
-          Skip onboarding and see how recommendations differ for four invented profiles.
-        </p>
-        <div className="af-persona-grid">
-          {PERSONAS.map((p) => (
-            <button key={p.id} className="af-persona-card" onClick={() => onTryPersona(p)}>
-              <span className="af-persona-name">{p.name}</span>
-              <span className="af-persona-blurb">{p.blurb}</span>
-            </button>
+      <div className="af-section">
+        <span className="af-section-eyebrow">One platform, four ways forward</span>
+        <div className="af-pathway-grid">
+          {pathways.map((p) => (
+            <div className="af-pathway-card" key={p.title}>
+              <div className="af-pathway-icon"><p.icon size={20} /></div>
+              <h3>{p.title}</h3>
+              <p>{p.desc}</p>
+            </div>
           ))}
         </div>
       </div>
 
-      <div className="af-how">
-        <div className="af-how-item">
-          <span className="af-how-index">Discover</span>
-          <p>Understand what you're already good at.</p>
-        </div>
-        <div className="af-line-v" />
-        <div className="af-how-item">
-          <span className="af-how-index">Build</span>
-          <p>Strengthen the skills that open doors.</p>
-        </div>
-        <div className="af-line-v" />
-        <div className="af-how-item">
-          <span className="af-how-index">Connect</span>
-          <p>See opportunities that actually fit you.</p>
-        </div>
-        <div className="af-line-v" />
-        <div className="af-how-item">
-          <span className="af-how-index">Act</span>
-          <p>Always know your next move.</p>
+      <div className="af-section">
+        <span className="af-section-eyebrow">How it works</span>
+        <div className="af-how">
+          {steps.map((s, i) => (
+            <React.Fragment key={s.title}>
+              <div className="af-how-item">
+                <div className="af-how-icon"><s.icon size={16} /></div>
+                <span className="af-how-index">{s.title}</span>
+                <p>{s.desc}</p>
+              </div>
+              {i < steps.length - 1 && <div className="af-line-v" />}
+            </React.Fragment>
+          ))}
         </div>
       </div>
 
-      <div className="af-trust">
-        <p><strong>Worth knowing:</strong> Afriforce's suggestions are estimates built from what you tell us, not guarantees of income or employment. You stay in control of your information at every step.</p>
+      <div className="af-section">
+        <div className="af-personas">
+          <span className="af-label">Development data — sample profiles for testing</span>
+          <p className="af-hint" style={{ marginTop: 4, marginBottom: 12 }}>
+            Skip onboarding and see how recommendations differ for four invented profiles.
+          </p>
+          <div className="af-persona-grid">
+            {PERSONAS.map((p) => (
+              <button key={p.id} className="af-persona-card" onClick={() => onTryPersona(p)}>
+                <span className="af-persona-name">{p.name}</span>
+                <span className="af-persona-blurb">{p.blurb}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
-      <div className="af-employer-link">
-        <button className="af-linklike" onClick={onEmployer}>Hiring? Explore Afriforce for Employers <ChevronRight size={14} /></button>
+      <div className="af-section">
+        <div className="af-trust">
+          <ShieldCheck size={18} style={{ flexShrink: 0, color: 'var(--indigo)' }} />
+          <p><strong>Worth knowing:</strong> Afriforce's suggestions are estimates built from what you tell us, not guarantees of income or employment. Opportunities are labeled "Verified listing" or "AI estimate" so it's always clear which is which. You stay in control of your information at every step.</p>
+        </div>
       </div>
 
-      <div className="af-admin-link">
-        <button className="af-tinylink" onClick={onAdmin}>Internal: Admin overview</button>
+      <div className="af-section af-final-cta">
+        <h2 className="af-page-title" style={{ marginBottom: 10 }}>Find out what you're good at.<br />Find where it can take you.</h2>
+        <button className="af-btn af-btn-primary" onClick={onStart}>
+          Start your journey <ArrowRight size={16} />
+        </button>
+      </div>
+
+      <div className="af-landing-footer">
+        <div className="af-built-with">
+          <span>Built with</span>
+          <span className="af-tech-badge">Next.js</span>
+          <span className="af-tech-badge">Firebase</span>
+          <span className="af-tech-badge">Gemini</span>
+        </div>
+        <div className="af-footer-links">
+          <button className="af-tinylink" onClick={onAdmin}>Internal: Admin overview</button>
+        </div>
       </div>
     </div>
   );
@@ -595,10 +683,24 @@ function Onboarding({ intake, setIntake, onComplete }) {
 /* Dashboard                                                               */
 /* ---------------------------------------------------------------------- */
 
-function Dashboard({ intake, econProfile, nextAction, onStartAction, actionBusy, go, askText, setAskText, onAsk, askAnswer, askBusy }) {
+function Dashboard({ intake, econProfile, nextAction, onStartAction, actionBusy, go, askText, setAskText, onAsk, askAnswer, askBusy, emailVerified, onResendVerification, onRefreshVerification, verifyBusy, verifyMessage }) {
   const firstName = 'there';
   return (
     <div className="af-screen">
+      {!emailVerified && (
+        <div className="af-card af-verify-banner">
+          <span className="af-label">Verify your email</span>
+          <p style={{ marginTop: 6 }}>Confirming your email helps keep your account recoverable. We sent a link when you signed up.</p>
+          {verifyMessage && <p className="af-microhint" style={{ marginTop: 6 }}>{verifyMessage}</p>}
+          <div className="af-error-actions" style={{ justifyContent: 'flex-start', marginTop: 10 }}>
+            <button className="af-btn af-btn-ghost af-btn-sm" disabled={verifyBusy} onClick={onResendVerification}>Resend email</button>
+            <button className="af-btn af-btn-ghost af-btn-sm" disabled={verifyBusy} onClick={onRefreshVerification}>
+              {verifyBusy ? <Loader2 size={14} className="af-spin" /> : "I've verified"}
+            </button>
+          </div>
+        </div>
+      )}
+
       <p className="af-greeting">Good to see you.</p>
       <p className="af-greeting-sub">{econProfile?.recommendedPath}</p>
 
@@ -919,7 +1021,15 @@ function OpportunitiesPage({ opportunities }) {
             </div>
             <div className="af-op-meta">
               <span><MapPin size={13} /> {o.remote ? 'Remote' : o.location}</span>
-              <span className="af-microhint">AI estimate — preview data</span>
+              {o.isReal ? (
+                o.sourceUrl ? (
+                  <a href={o.sourceUrl} target="_blank" rel="noopener noreferrer" className="af-source-badge real">View listing →</a>
+                ) : (
+                  <span className="af-source-badge real">Verified listing</span>
+                )
+              ) : (
+                <span className="af-source-badge">AI estimate — preview data</span>
+              )}
             </div>
           </div>
         ))}
@@ -1179,6 +1289,27 @@ function AdminPage({ onBack }) {
   const [members, setMembers] = useState([]);
   const [error, setError] = useState(false);
 
+  const [opps, setOpps] = useState([]);
+  const [oppsLoading, setOppsLoading] = useState(true);
+  const [oppForm, setOppForm] = useState({
+    title: '', company: '', category: 'Jobs', location: '', remote: false, skillsText: '', sourceUrl: '', source: '',
+  });
+  const [oppBusy, setOppBusy] = useState(false);
+  const [oppError, setOppError] = useState('');
+
+  async function loadOpportunities() {
+    setOppsLoading(true);
+    try {
+      const res = await fetch('/api/opportunities?limit=50');
+      const data = await res.json();
+      setOpps(data.opportunities || []);
+    } catch (e) {
+      // leave list as-is; the section shows "couldn't load" via empty state
+    } finally {
+      setOppsLoading(false);
+    }
+  }
+
   useEffect(() => {
     (async () => {
       try {
@@ -1196,7 +1327,51 @@ function AdminPage({ onBack }) {
         setLoading(false);
       }
     })();
+    loadOpportunities();
   }, []);
+
+  async function submitOpportunity() {
+    setOppError('');
+    if (!oppForm.title.trim()) { setOppError('Title is required.'); return; }
+    setOppBusy(true);
+    try {
+      const headers = { 'Content-Type': 'application/json', ...(await authHeader()) };
+      const res = await fetch('/api/opportunities', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          title: oppForm.title,
+          company: oppForm.company,
+          category: oppForm.category,
+          location: oppForm.location,
+          remote: oppForm.remote,
+          skills: oppForm.skillsText.split(',').map((s) => s.trim()).filter(Boolean),
+          sourceUrl: oppForm.sourceUrl,
+          source: oppForm.source,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Could not add this listing.');
+      }
+      setOppForm({ title: '', company: '', category: 'Jobs', location: '', remote: false, skillsText: '', sourceUrl: '', source: '' });
+      await loadOpportunities();
+    } catch (e) {
+      setOppError(e.message || 'Something went wrong.');
+    } finally {
+      setOppBusy(false);
+    }
+  }
+
+  async function removeOpportunity(id) {
+    try {
+      const headers = await authHeader();
+      await fetch(`/api/opportunities/${id}`, { method: 'DELETE', headers });
+      setOpps((prev) => prev.filter((o) => o.id !== id));
+    } catch (e) {
+      // leave the list as-is on failure — no silent data loss to hide
+    }
+  }
 
   const skillCounts = {};
   const locationCounts = {};
@@ -1215,6 +1390,72 @@ function AdminPage({ onBack }) {
       <p className="af-hint" style={{ marginBottom: 18 }}>
         This reads the actual shared talent records created when someone turns on "Visible to employers." Nothing here is invented.
       </p>
+
+      <div className="af-card">
+        <span className="af-label">Add a real opportunity listing</span>
+        <p className="af-hint" style={{ margin: '4px 0 12px' }}>
+          Seeds the real opportunity store — job-seeker matching checks this before falling back to AI-generated previews.
+        </p>
+        <div className="af-field">
+          <label>Title</label>
+          <input className="af-input" value={oppForm.title} onChange={(e) => setOppForm((p) => ({ ...p, title: e.target.value }))} placeholder="e.g. Customer Support Associate" />
+        </div>
+        <div className="af-field">
+          <label>Company</label>
+          <input className="af-input" value={oppForm.company} onChange={(e) => setOppForm((p) => ({ ...p, company: e.target.value }))} />
+        </div>
+        <div className="af-field">
+          <label>Category</label>
+          <div className="af-chip-grid">
+            {['Jobs', 'Freelance', 'Business', 'Learning'].map((c) => (
+              <Chip key={c} label={c} active={oppForm.category === c} onClick={() => setOppForm((p) => ({ ...p, category: c }))} />
+            ))}
+          </div>
+        </div>
+        <div className="af-field">
+          <label>Location</label>
+          <input className="af-input" value={oppForm.location} onChange={(e) => setOppForm((p) => ({ ...p, location: e.target.value }))} placeholder="e.g. Lagos, Nigeria" />
+        </div>
+        <div className="af-field">
+          <Chip label="Remote" active={oppForm.remote} onClick={() => setOppForm((p) => ({ ...p, remote: !p.remote }))} />
+        </div>
+        <div className="af-field">
+          <label>Required skills (comma-separated)</label>
+          <input className="af-input" value={oppForm.skillsText} onChange={(e) => setOppForm((p) => ({ ...p, skillsText: e.target.value }))} placeholder="e.g. Customer Service, CRM" />
+        </div>
+        <div className="af-field">
+          <label>Source URL (optional)</label>
+          <input className="af-input" value={oppForm.sourceUrl} onChange={(e) => setOppForm((p) => ({ ...p, sourceUrl: e.target.value }))} placeholder="Link to the original listing" />
+        </div>
+        <div className="af-field">
+          <label>Source name (optional)</label>
+          <input className="af-input" value={oppForm.source} onChange={(e) => setOppForm((p) => ({ ...p, source: e.target.value }))} placeholder="e.g. Company website, referral" />
+        </div>
+        {oppError && <p className="af-inline-error">{oppError}</p>}
+        <button className="af-btn af-btn-primary" disabled={oppBusy} onClick={submitOpportunity}>
+          {oppBusy ? <Loader2 size={16} className="af-spin" /> : 'Add listing'}
+        </button>
+      </div>
+
+      <div className="af-card">
+        <span className="af-label">Real listings ({opps.length})</span>
+        {oppsLoading && <LoadingSequence />}
+        {!oppsLoading && !opps.length && <p style={{ marginTop: 8 }}>No real listings yet — add one above.</p>}
+        {!oppsLoading && opps.length > 0 && (
+          <div className="af-skill-list" style={{ marginTop: 8 }}>
+            {opps.map((o) => (
+              <div key={o.id} className="af-skill-row">
+                <div>
+                  <h4>{o.title}</h4>
+                  <p className="af-skill-meta">{o.company}{o.location ? ` · ${o.location}` : ''}{o.remote ? ' · Remote' : ''}</p>
+                  <p className="af-skill-meta">{(o.skills || []).join(', ')}</p>
+                </div>
+                <button className="af-btn af-btn-ghost af-btn-sm" onClick={() => removeOpportunity(o.id)}>Remove</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {loading && <LoadingSequence />}
       {!loading && error && <p className="af-hint">Couldn't load records right now.</p>}
@@ -1289,12 +1530,13 @@ function firebaseAuthErrorMessage(e) {
 }
 
 function AuthScreen({ onSuccess, onCancel, suggestedRole }) {
-  const [mode, setMode] = useState('signin');
+  const [mode, setMode] = useState('signin'); // 'signin' | 'register' | 'reset'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [accountType, setAccountType] = useState(suggestedRole === 'employer' ? 'employer' : 'seeker');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [resetSent, setResetSent] = useState(false);
 
   async function submit() {
     setError('');
@@ -1315,6 +1557,10 @@ function AuthScreen({ onSuccess, onCancel, suggestedRole }) {
           const data = await res.json().catch(() => ({}));
           throw new Error(data.error || 'Account was created, but we could not finish setting it up. Try signing in.');
         }
+        // Best-effort — a failed verification email shouldn't block
+        // account creation; the user can request another one later
+        // (e.g. from the dashboard banner once that's wired up).
+        sendEmailVerification(cred.user).catch(() => {});
       } else {
         cred = await signInWithEmailAndPassword(auth, email, password);
       }
@@ -1327,6 +1573,49 @@ function AuthScreen({ onSuccess, onCancel, suggestedRole }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function submitReset() {
+    setError('');
+    if (!email.includes('@')) { setError('Enter a valid email.'); return; }
+    setBusy(true);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setResetSent(true);
+    } catch (e) {
+      // Deliberately the same message whether or not the email exists —
+      // confirming/denying an email's existence to an unauthenticated
+      // visitor is an account-enumeration risk. Firebase's own
+      // auth/user-not-found error is caught by this same generic
+      // response rather than surfaced distinctly.
+      setResetSent(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (mode === 'reset') {
+    return (
+      <div className="af-screen">
+        <button className="af-linklike" onClick={() => { setMode('signin'); setError(''); setResetSent(false); }} style={{ marginBottom: 14 }}>← Back to sign in</button>
+        <span className="af-label">Reset password</span>
+        <h2 className="af-page-title" style={{ marginTop: 6, marginBottom: 16 }}>Get a reset link</h2>
+        {resetSent ? (
+          <p>If an account exists for <strong>{email}</strong>, a password reset link is on its way — check your inbox (and spam folder).</p>
+        ) : (
+          <>
+            <div className="af-field">
+              <label>Email</label>
+              <input className="af-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submitReset()} />
+            </div>
+            {error && <p className="af-inline-error">{error}</p>}
+            <button className="af-btn af-btn-primary" disabled={busy} onClick={submitReset}>
+              {busy ? <Loader2 size={16} className="af-spin" /> : 'Send reset link'}
+            </button>
+          </>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -1356,6 +1645,11 @@ function AuthScreen({ onSuccess, onCancel, suggestedRole }) {
         <label>Password</label>
         <input className="af-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />
         {mode === 'register' && <p className="af-microhint">At least 8 characters.</p>}
+        {mode === 'signin' && (
+          <button type="button" className="af-tinylink" style={{ marginTop: 6 }} onClick={() => { setMode('reset'); setError(''); }}>
+            Forgot password?
+          </button>
+        )}
       </div>
 
       {error && <p className="af-inline-error">{error}</p>}
@@ -1403,16 +1697,19 @@ export default function App() {
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [role, setRole] = useState(null);
   const [status, setStatus] = useState('loading');
+  const [emailVerified, setEmailVerified] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         setFirebaseUser(null);
         setRole(null);
+        setEmailVerified(false);
         setStatus('unauthenticated');
         return;
       }
       setFirebaseUser(user);
+      setEmailVerified(user.emailVerified);
       try {
         const tokenResult = await user.getIdTokenResult();
         setRole(tokenResult.claims.role || null);
@@ -1423,6 +1720,41 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  const [verifyMessage, setVerifyMessage] = useState('');
+
+  // Firebase doesn't push emailVerified updates automatically once the
+  // user clicks the link in their inbox — the SDK's cached user object
+  // only reflects it after an explicit reload(), so both actions below
+  // are things the person has to trigger themselves from the banner.
+  async function resendVerificationEmail() {
+    if (!auth.currentUser) return;
+    setVerifyBusy(true);
+    setVerifyMessage('');
+    try {
+      await sendEmailVerification(auth.currentUser);
+      setVerifyMessage('Verification email sent — check your inbox (and spam folder).');
+    } catch (e) {
+      setVerifyMessage(firebaseAuthErrorMessage(e));
+    } finally {
+      setVerifyBusy(false);
+    }
+  }
+
+  async function refreshVerificationStatus() {
+    if (!auth.currentUser) return;
+    setVerifyBusy(true);
+    try {
+      await auth.currentUser.reload();
+      setEmailVerified(auth.currentUser.emailVerified);
+      setVerifyMessage(auth.currentUser.emailVerified ? 'Verified!' : "Still showing as unverified — give it a moment after clicking the email link, then try again.");
+    } catch (e) {
+      setVerifyMessage(firebaseAuthErrorMessage(e));
+    } finally {
+      setVerifyBusy(false);
+    }
+  }
 
   const [pendingAction, setPendingAction] = useState(null);
   const [roleErrorMessage, setRoleErrorMessage] = useState('');
@@ -1581,9 +1913,23 @@ export default function App() {
     setSkills(src.skills.map((s) => ({ name: s.name, selfLevel: s.selfLevel, assessed: false })));
     setScreen('generating');
 
+    // Pull real admin-seeded listings before generating anything — the
+    // AI is asked to find genuine matches among these first, and only
+    // invent clearly-labeled preview opportunities to fill any
+    // remaining slots. Same pattern as the employer search's real
+    // member profiles.
+    let realOpportunities = [];
+    try {
+      const res = await fetch('/api/opportunities?limit=50');
+      const data = await res.json();
+      realOpportunities = data.opportunities || [];
+    } catch (e) {
+      realOpportunities = [];
+    }
+
     const [profile, opps] = await Promise.all([
       askAfriforce(SYSTEM, `Based on this person's onboarding answers, generate their Afriforce Economic Profile.\n\n${profileSummary(src)}\n\nRespond as JSON with exactly these keys: strengths (array of 3 short strings), developingSkills (array of up to 3 short strings), skillGaps (array of up to 3 short strings), opportunityAreas (array of 3 short strings, each describing a category of realistic opportunity for this person), recommendedPath (1-2 sentence string summarizing their strongest realistic direction), nextAction (object with title, why, effort, benefit — a single concrete first step, ideally to complete a skill assessment for one of their listed skills, phrased like "Complete your X assessment"), nextActionSkill (the exact skill name from their list that the nextAction refers to, or null).`),
-      askAfriforce(SYSTEM, `Based on this person, generate 6 realistic development-preview opportunities.\n\n${profileSummary(src)}\n\nRespond as JSON: an array of 6 objects, each with keys: title, category (one of "Jobs","Freelance","Business","Learning"), matchLevel (one of "Strong match","Good match","Partial match","Needs preparation"), why (1 sentence explaining the fit using their actual skills/experience), have (array of up to 2 skills they already have that are relevant), need (array of up to 2 skills worth strengthening), location (a real city/country near theirs, or "Remote"), remote (boolean).`),
+      askAfriforce(SYSTEM, `Based on this person, find their best opportunities.\n\n${profileSummary(src)}\n\nHere are real listings currently in Afriforce's opportunity store (JSON, may be empty): ${JSON.stringify(realOpportunities).slice(0, 3000)}\n\nFirst, evaluate each real listing honestly against this person — only include ones that are a genuine match at some level (any match level is fine, including "Needs preparation", but don't force a fit that isn't there). Then invent additional clearly-fictional preview opportunities to bring the total to 6.\n\nRespond as JSON: an array of up to 6 objects, each with keys: title, category (one of "Jobs","Freelance","Business","Learning"), matchLevel (one of "Strong match","Good match","Partial match","Needs preparation"), why (1 sentence explaining the fit using their actual skills/experience), have (array of up to 2 skills they already have that are relevant), need (array of up to 2 skills worth strengthening), location (use the real listing's location if from one, otherwise a real city/country near theirs, or "Remote"), remote (boolean), isReal (true only if this came from a real listing provided above, false otherwise), sourceUrl (the real listing's sourceUrl if isReal is true and one was provided, otherwise omit or leave empty).`),
     ]);
 
     if (profile) {
@@ -1919,7 +2265,13 @@ export default function App() {
           background: var(--stone);
           color: var(--ink);
           min-height: 600px;
-          max-width: 480px;
+          /* The rest of the app is intentionally a fixed mobile-width
+             column (this is a mobile-first product, per its own design
+             brief) — but the landing page is what a judge/visitor sees
+             first, often on a laptop or projector, so it alone is
+             allowed to use the full viewport with its own responsive
+             layout below. Every other screen keeps the 480px column. */
+          max-width: ${screen === 'landing' ? 'none' : '480px'};
           margin: 0 auto;
           position: relative;
           /* Generous, deliberately over-sized clearance for the fixed
@@ -1931,31 +2283,73 @@ export default function App() {
         h1, h2, h3, h4 { font-family: 'Space Grotesk', sans-serif; margin: 0; letter-spacing: -0.01em; }
         p { margin: 0; line-height: 1.55; color: var(--muted); }
 
-        /* Landing */
-        .af-landing { padding: 40px 22px 30px; }
+        /* Brand mark */
+        .af-logo { display: flex; align-items: center; gap: 10px; }
+        .af-logo-word { font-family: 'Space Grotesk', sans-serif; font-weight: 700; color: var(--ink); letter-spacing: -0.01em; }
+        .af-logo-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ochre); background: #F5EEE2; border-radius: 8px; padding: 2px 7px; }
+
+        /* Landing — the one screen allowed to break out of the app's
+           mobile-width column (see .af-app above). Content still caps
+           at a comfortable reading/scanning width on large screens
+           rather than stretching edge-to-edge. */
+        .af-landing { padding: 0 0 0; }
+        .af-landing-topbar { max-width: 1100px; margin: 0 auto; padding: 20px 22px 0; }
+        .af-section { max-width: 1100px; margin: 0 auto; padding: 46px 22px 0; }
+        .af-section-eyebrow { display: block; font-family: 'Space Grotesk', sans-serif; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--indigo); margin-bottom: 16px; }
+
+        .af-hero { max-width: 1100px; margin: 0 auto; padding: 28px 22px 0; display: flex; align-items: center; gap: 40px; }
+        .af-hero-inner { flex: 1 1 480px; min-width: 0; }
+        .af-hero-visual { flex: 0 0 auto; display: none; }
         .af-eyebrow { font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 13px; color: var(--indigo); letter-spacing: 0.08em; text-transform: uppercase; }
         .af-h1 { font-size: 32px; line-height: 1.15; color: var(--ink); margin: 14px 0 16px; font-weight: 600; }
-        .af-lead { font-size: 15px; margin-bottom: 26px; }
+        .af-lead { font-size: 15px; margin-bottom: 26px; max-width: 46ch; }
         .af-cta-row { display: flex; flex-wrap: wrap; gap: 10px; }
-        .af-how { margin-top: 40px; display: flex; flex-direction: column; }
+
+        .af-pathway-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+        .af-pathway-card { background: var(--paper); border: 1px solid var(--stone-line); border-radius: 12px; padding: 18px; box-shadow: var(--shadow-card); }
+        .af-pathway-card h3 { font-size: 15.5px; margin: 10px 0 4px; }
+        .af-pathway-card p { font-size: 13px; }
+        .af-pathway-icon { width: 36px; height: 36px; border-radius: 9px; background: #EAF0F6; color: var(--indigo); display: flex; align-items: center; justify-content: center; }
+
+        .af-how { margin-top: 6px; display: flex; flex-direction: column; }
         .af-how-item { padding: 14px 0; }
+        .af-how-icon { width: 28px; height: 28px; border-radius: 8px; background: #EAF0F6; color: var(--indigo); display: flex; align-items: center; justify-content: center; margin-bottom: 8px; }
         .af-how-index { font-family: 'Space Grotesk', sans-serif; font-weight: 600; color: var(--indigo); font-size: 15px; }
         .af-how-item p { margin-top: 4px; font-size: 14px; }
-        .af-line-v { width: 1px; height: 16px; background: var(--stone-line); margin-left: 2px; }
-        .af-trust { margin-top: 30px; padding: 16px; background: var(--paper); border-radius: 10px; border: 1px solid var(--stone-line); }
+        .af-line-v { width: 1px; height: 16px; background: var(--stone-line); margin-left: 16px; }
+
+        .af-trust { display: flex; gap: 10px; align-items: flex-start; padding: 16px; background: var(--paper); border-radius: 10px; border: 1px solid var(--stone-line); }
         .af-trust p { font-size: 13px; }
-        .af-employer-link { text-align: center; margin-top: 22px; }
-        .af-admin-link { text-align: center; margin-top: 10px; }
+        .af-final-cta { text-align: center; padding-top: 50px; padding-bottom: 10px; }
+
+        .af-landing-footer { max-width: 1100px; margin: 40px auto 0; padding: 22px; border-top: 1px solid var(--stone-line); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; }
+        .af-built-with { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); flex-wrap: wrap; }
+        .af-tech-badge { font-size: 11px; font-weight: 600; color: var(--ink); background: var(--stone); border: 1px solid var(--stone-line); border-radius: 8px; padding: 3px 8px; }
+        .af-footer-links { display: flex; gap: 14px; }
+
         .af-tinylink { background: none; border: none; color: var(--muted); font-size: 11.5px; cursor: pointer; text-decoration: underline; }
         .af-admin-member { display: flex; flex-direction: column; gap: 2px; padding: 10px 0; border-bottom: 1px solid var(--stone-line); }
         .af-admin-member:last-child { border-bottom: none; }
-        .af-personas { margin-top: 34px; padding-top: 26px; border-top: 1px solid var(--stone-line); }
+        .af-personas { padding-top: 0; }
         .af-persona-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .af-persona-card { text-align: left; background: var(--paper); border: 1px solid var(--stone-line); border-radius: 10px; padding: 12px; cursor: pointer; display: flex; flex-direction: column; gap: 3px; min-width: 0; transition: border-color .15s, box-shadow .15s; }
         .af-persona-card:hover { border-color: var(--indigo); box-shadow: var(--shadow-card); }
-        .af-persona-card:hover { border-color: var(--indigo); }
         .af-persona-name { font-size: 12.5px; font-weight: 600; color: var(--ink); }
         .af-persona-blurb { font-size: 11.5px; color: var(--muted); }
+
+        @media (min-width: 720px) {
+          .af-h1 { font-size: 42px; }
+          .af-lead { font-size: 16.5px; }
+          .af-pathway-grid { grid-template-columns: repeat(2, 1fr); }
+          .af-persona-grid { grid-template-columns: repeat(4, 1fr); }
+          .af-how { flex-direction: row; align-items: flex-start; gap: 4px; }
+          .af-how-item { flex: 1 1 0; min-width: 0; padding: 0; }
+          .af-line-v { width: auto; height: 1px; flex: 0 0 24px; margin: 18px 0 0; }
+        }
+        @media (min-width: 980px) {
+          .af-hero-visual { display: block; }
+          .af-pathway-grid { grid-template-columns: repeat(4, 1fr); }
+        }
 
         /* Buttons */
         .af-btn { font-family: 'Inter', sans-serif; font-weight: 600; font-size: 14px; border-radius: 9px; padding: 12px 18px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer; border: none; transition: background-color .15s, transform .1s, opacity .15s; }
@@ -2032,6 +2426,7 @@ export default function App() {
 
         .af-card { background: var(--paper); border: 1px solid var(--stone-line); border-radius: 12px; padding: 18px; margin-bottom: 14px; box-shadow: var(--shadow-card); }
         .af-nextmove h3 { font-size: 18px; margin: 8px 0 6px; }
+        .af-verify-banner { border-color: var(--ochre); }
         .af-nextmove-why { font-size: 13.5px; margin-bottom: 12px; }
         .af-nextmove-meta { display: flex; gap: 14px; font-size: 12.5px; color: var(--muted); margin-bottom: 14px; }
         .af-nextmove-meta span { display: flex; align-items: center; gap: 4px; }
@@ -2080,6 +2475,7 @@ export default function App() {
         .af-visibility p { font-size: 13px; }
         .af-source-badge { display: inline-block; margin-top: 10px; font-size: 11px; font-weight: 600; color: var(--muted); background: var(--stone); border-radius: 10px; padding: 3px 9px; }
         .af-source-badge.real { color: var(--moss); background: #E6EEE7; }
+        .af-op-meta .af-source-badge { margin-top: 0; text-decoration: none; }
         .af-metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
         .af-metric-grid .af-field { min-width: 0; }
         .af-metric-grid .af-field { margin-bottom: 0; }
@@ -2167,6 +2563,11 @@ export default function App() {
           onAsk={handleAsk}
           askAnswer={askAnswer}
           askBusy={askBusy}
+          emailVerified={emailVerified}
+          onResendVerification={resendVerificationEmail}
+          onRefreshVerification={refreshVerificationStatus}
+          verifyBusy={verifyBusy}
+          verifyMessage={verifyMessage}
         />
       )}
 
