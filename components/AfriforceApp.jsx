@@ -881,7 +881,7 @@ function FreelancePage({ skillName, pkg, onBack }) {
 /* Employer                                                                 */
 /* ---------------------------------------------------------------------- */
 
-function EmployerIntake({ form, setForm, onSubmit, busy, onBack, error }) {
+function EmployerIntake({ form, setForm, onSubmit, busy, onBack, error, onViewTeam }) {
   const [skillInput, setSkillInput] = useState('');
   const addSkill = (name) => {
     const trimmed = name.trim();
@@ -896,7 +896,10 @@ function EmployerIntake({ form, setForm, onSubmit, busy, onBack, error }) {
   return (
     <div className="af-screen">
       <button className="af-linklike" onClick={onBack} style={{ marginBottom: 14 }}>← Back to Afriforce</button>
-      <span className="af-label">Afriforce for Employers</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+        <span className="af-label">Afriforce for Employers</span>
+        <button className="af-tinylink" onClick={onViewTeam}>My team</button>
+      </div>
       <h2 className="af-page-title" style={{ marginTop: 6 }}>What are you hiring for?</h2>
 
       <div className="af-field">
@@ -985,6 +988,80 @@ function EmployerResults({ jobDescription, candidates, onBack }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function TeamPage({ onBack }) {
+  const [org, setOrg] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const headers = await authHeader();
+        const res = await fetch('/api/organizations/me', { headers });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Could not load your organization.');
+        }
+        setOrg(await res.json());
+      } catch (e) {
+        setError(e.message || 'Something went wrong.');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  function copyCode() {
+    if (!org?.inviteCode) return;
+    navigator.clipboard?.writeText(org.inviteCode).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  }
+
+  return (
+    <div className="af-screen">
+      <button className="af-linklike" onClick={onBack} style={{ marginBottom: 14 }}>← Back</button>
+      <span className="af-label">My team</span>
+
+      {loading && <LoadingSequence />}
+      {!loading && error && <p className="af-hint" style={{ marginTop: 10 }}>{error}</p>}
+
+      {!loading && org && (
+        <>
+          <h2 className="af-page-title" style={{ marginTop: 6, marginBottom: 16 }}>{org.name}</h2>
+
+          <div className="af-card">
+            <span className="af-label">Invite teammates</span>
+            <p style={{ marginTop: 8 }}>Share this code — anyone who enters it while creating an employer account joins your organization instead of starting a new one.</p>
+            <div className="af-invite-code-row">
+              <span className="af-invite-code">{org.inviteCode}</span>
+              <button className="af-btn af-btn-ghost af-btn-sm" onClick={copyCode}>{copied ? 'Copied!' : 'Copy'}</button>
+            </div>
+          </div>
+
+          <div className="af-card">
+            <span className="af-label">Members ({org.members?.length || 0})</span>
+            <div className="af-skill-list" style={{ marginTop: 8 }}>
+              {(org.members || []).map((m) => (
+                <div key={m.uid} className="af-admin-member">
+                  <strong>{m.email}</strong>
+                  <span className="af-skill-meta" style={{ textTransform: 'capitalize' }}>{m.role}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <p className="af-microhint">
+            Everyone in this organization signs in with their own account and password — there's no shared login. Team-wide job postings and shared candidate pipelines aren't built yet; today, membership is the foundation for that.
+          </p>
+        </>
+      )}
     </div>
   );
 }
@@ -1534,39 +1611,69 @@ function AuthScreen({ onSuccess, onCancel, suggestedRole }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [accountType, setAccountType] = useState(suggestedRole === 'employer' ? 'employer' : 'seeker');
+  const [orgMode, setOrgMode] = useState('create'); // 'create' | 'join'
+  const [orgName, setOrgName] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [resetSent, setResetSent] = useState(false);
+  // Holds the Firebase user if the account itself was created but the
+  // role/organization step failed (e.g. a bad invite code) — lets the
+  // person fix just that and retry, instead of hitting
+  // "email already in use" from trying to create the account twice.
+  const [pendingUser, setPendingUser] = useState(null);
+
+  async function finishRegistration(user) {
+    const idToken = await user.getIdToken();
+    const res = await fetch('/api/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      body: JSON.stringify({
+        role: accountType,
+        orgName: accountType === 'employer' && orgMode === 'create' ? orgName : undefined,
+        inviteCode: accountType === 'employer' && orgMode === 'join' ? inviteCode : undefined,
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Could not finish setting up the account.');
+    }
+  }
 
   async function submit() {
     setError('');
     if (!email.includes('@')) { setError('Enter a valid email.'); return; }
     if (password.length < 8) { setError('Password must be at least 8 characters.'); return; }
+    if (mode === 'register' && accountType === 'employer' && orgMode === 'join' && !inviteCode.trim()) {
+      setError('Enter your team\u2019s invite code, or switch to creating a new organization.');
+      return;
+    }
     setBusy(true);
     try {
-      let cred;
+      let user;
       if (mode === 'register') {
-        cred = await createUserWithEmailAndPassword(auth, email, password);
-        const idToken = await cred.user.getIdToken();
-        const res = await fetch('/api/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-          body: JSON.stringify({ role: accountType }),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || 'Account was created, but we could not finish setting it up. Try signing in.');
+        if (pendingUser) {
+          await finishRegistration(pendingUser);
+          user = pendingUser;
+        } else {
+          const cred = await createUserWithEmailAndPassword(auth, email, password);
+          user = cred.user;
+          try {
+            await finishRegistration(user);
+          } catch (e) {
+            // Account exists now, but role/org setup failed (e.g. bad
+            // invite code) — let them fix that specific thing and
+            // retry without re-creating the account.
+            setPendingUser(user);
+            throw e;
+          }
+          sendEmailVerification(user).catch(() => {});
         }
-        // Best-effort — a failed verification email shouldn't block
-        // account creation; the user can request another one later
-        // (e.g. from the dashboard banner once that's wired up).
-        sendEmailVerification(cred.user).catch(() => {});
       } else {
-        cred = await signInWithEmailAndPassword(auth, email, password);
+        const cred = await signInWithEmailAndPassword(auth, email, password);
+        user = cred.user;
       }
-      // Force-refresh so a just-assigned custom claim (role) is present
-      // immediately rather than after the token's normal refresh cycle.
-      const tokenResult = await cred.user.getIdTokenResult(true);
+      const tokenResult = await user.getIdTokenResult(true);
       onSuccess(tokenResult.claims.role || 'seeker');
     } catch (e) {
       setError(firebaseAuthErrorMessage(e));
@@ -1637,14 +1744,36 @@ function AuthScreen({ onSuccess, onCancel, suggestedRole }) {
         </div>
       )}
 
+      {mode === 'register' && accountType === 'employer' && (
+        <div className="af-field">
+          <label>Organization</label>
+          <div className="af-chip-grid">
+            <Chip label="Create a new one" active={orgMode === 'create'} onClick={() => setOrgMode('create')} />
+            <Chip label="Join with invite code" active={orgMode === 'join'} onClick={() => setOrgMode('join')} />
+          </div>
+          {orgMode === 'create' ? (
+            <input className="af-input" style={{ marginTop: 10 }} value={orgName} onChange={(e) => setOrgName(e.target.value)} placeholder="Company or team name (optional)" />
+          ) : (
+            <input className="af-input" style={{ marginTop: 10 }} value={inviteCode} onChange={(e) => setInviteCode(e.target.value.toUpperCase())} placeholder="8-character invite code from a teammate" />
+          )}
+          <p className="af-microhint">Employer accounts belong to an organization. Create one now, or join a teammate's with their invite code — find it on their Team screen.</p>
+        </div>
+      )}
+
+      {mode === 'register' && pendingUser && (
+        <div className="af-card" style={{ marginBottom: 16 }}>
+          <p className="af-microhint">Your account was created — just fix the organization step below and try again. No need to re-enter your password.</p>
+        </div>
+      )}
+
       <div className="af-field">
         <label>Email</label>
-        <input className="af-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />
+        <input className="af-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} disabled={!!pendingUser} />
       </div>
       <div className="af-field">
         <label>Password</label>
-        <input className="af-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />
-        {mode === 'register' && <p className="af-microhint">At least 8 characters.</p>}
+        <input className="af-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} disabled={!!pendingUser} />
+        {mode === 'register' && !pendingUser && <p className="af-microhint">At least 8 characters.</p>}
         {mode === 'signin' && (
           <button type="button" className="af-tinylink" style={{ marginTop: 6 }} onClick={() => { setMode('reset'); setError(''); }}>
             Forgot password?
@@ -2315,7 +2444,7 @@ export default function App() {
         .af-cta-row { display: flex; flex-wrap: wrap; gap: 10px; }
 
         .af-pathway-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
-        .af-pathway-card { background: var(--paper); border: 1px solid var(--stone-line); border-radius: 12px; padding: 18px; box-shadow: var(--shadow-card); }
+        .af-pathway-card { background: var(--paper); border: 1px solid var(--stone-line); border-radius: 12px; padding: 18px; box-shadow: var(--shadow-card); min-width: 0; }
         .af-pathway-card h3 { font-size: 15.5px; margin: 10px 0 4px; }
         .af-pathway-card p { font-size: 13px; }
         .af-pathway-icon { width: 36px; height: 36px; border-radius: 9px; background: #EAF0F6; color: var(--indigo); display: flex; align-items: center; justify-content: center; }
@@ -2338,6 +2467,8 @@ export default function App() {
 
         .af-tinylink { background: none; border: none; color: var(--muted); font-size: 11.5px; cursor: pointer; text-decoration: underline; }
         .af-admin-member { display: flex; flex-direction: column; gap: 2px; padding: 10px 0; border-bottom: 1px solid var(--stone-line); }
+        .af-invite-code-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+        .af-invite-code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 20px; font-weight: 700; letter-spacing: 0.12em; color: var(--indigo); background: var(--stone); border-radius: 8px; padding: 8px 14px; }
         .af-admin-member:last-child { border-bottom: none; }
         .af-personas { padding-top: 0; }
         .af-persona-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -2409,6 +2540,7 @@ export default function App() {
         .af-chip.active { background: var(--indigo); border-color: var(--indigo); color: #fff; }
         .af-skill-input-row { display: flex; gap: 8px; margin-bottom: 12px; }
         .af-input { font-family: 'Inter', sans-serif; font-size: 14px; padding: 11px 13px; border-radius: 8px; border: 1px solid var(--stone-line); background: var(--paper); width: 100%; color: var(--ink); }
+        .af-input:disabled { background: var(--stone); color: var(--muted); cursor: not-allowed; }
         .af-textarea { font-family: 'Inter', sans-serif; font-size: 14px; padding: 12px 13px; border-radius: 8px; border: 1px solid var(--stone-line); background: var(--paper); width: 100%; margin: 10px 0 16px; resize: vertical; color: var(--ink); }
         .af-suggest-row { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 14px; }
         .af-selected-skills { display: flex; flex-wrap: wrap; gap: 7px; }
@@ -2615,12 +2747,14 @@ export default function App() {
       )}
 
       {screen === 'employer-intake' && (
-        <EmployerIntake form={employerForm} setForm={setEmployerForm} onSubmit={submitEmployerSearch} busy={employerBusy} onBack={() => setScreen('landing')} error={employerError} />
+        <EmployerIntake form={employerForm} setForm={setEmployerForm} onSubmit={submitEmployerSearch} busy={employerBusy} onBack={() => setScreen('landing')} error={employerError} onViewTeam={() => setScreen('team')} />
       )}
 
       {screen === 'employer-results' && (
         <EmployerResults jobDescription={employerJob} candidates={employerCandidates} onBack={resetEmployer} />
       )}
+
+      {screen === 'team' && <TeamPage onBack={() => setScreen('employer-intake')} />}
 
       {screen === 'admin' && <AdminPage onBack={() => setScreen('landing')} />}
 

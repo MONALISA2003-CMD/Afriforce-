@@ -194,10 +194,20 @@ to naturally refresh) before the app sees the new role.
   deliberately shows the same "check your inbox" message whether or not
   the email exists, to avoid confirming account existence to an
   unauthenticated visitor.
+- **Organization-level employer accounts** — an employer registering
+  creates a real `organizations` Firestore doc (or joins an existing one
+  via an 8-character invite code, since there's no email-sending
+  infrastructure for real invitations yet). The `orgId` is a custom
+  claim, checked server-side in `/api/organizations/me` — one org can't
+  read another's member list. The "My team" screen shows the invite code
+  and member list. What this doesn't yet do: shared job postings or a
+  shared candidate pipeline across an org's members — see gaps below.
 
 **Known gaps, worth fixing before this handles real users:**
-- **No organization-level employer accounts.** Employer is a role on an
-  individual Firebase user, not a company with multiple seats/members.
+- **Organizations don't share data yet.** Membership is real, but job
+  searches, saved candidates, and postings are still scoped to the
+  individual account that ran them, not the organization. That's the
+  natural next step on top of the membership model now in place.
 - **Rate limiter isn't atomic.** It counts Firestore documents in a time
   window rather than using an atomic counter, so two concurrent requests
   near the boundary could both slip through. Fine for an MVP deploy;
