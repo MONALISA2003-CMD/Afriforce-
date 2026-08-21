@@ -270,7 +270,20 @@ async function askAfriforce(system, prompt) {
   }
 }
 
-const SYSTEM = 'You are Afriforce Intelligence, an economic-opportunity analyst helping African users turn their skills, time and resources into real work, income or businesses. Be concrete, specific to what the person told you, warm but plain-spoken. Never guarantee income or employment. Respond with ONLY valid JSON — no markdown fences, no commentary before or after.';
+const SYSTEM_BASE = 'You are Afriforce Intelligence, an economic-opportunity analyst helping African users turn their skills, time and resources into real work, income or businesses. Be concrete, specific to what the person told you, warm but plain-spoken. Never guarantee income or employment. Respond with ONLY valid JSON — no markdown fences, no commentary before or after.';
+
+// Builds the system prompt for a given call, adding a language
+// instruction when the person's preferred language isn't English. This
+// is genuine multilingual generation (Gemini writes natively in the
+// target language), not a translated-after-the-fact UI — the static
+// interface chrome (buttons, labels) is still English-only, which is
+// an honest limitation, not something this function pretends to solve.
+// JSON field names must stay in English regardless of language, since
+// the frontend parses those keys by name — only translate the values.
+function buildSystem(language) {
+  if (!language || language === 'English') return SYSTEM_BASE;
+  return `${SYSTEM_BASE} Write your response in ${language}: all titles, descriptions, explanations and other text values should be in ${language}. Keep the JSON field/key names exactly as instructed (in English) — only translate the values. Keep proper nouns (company names, place names, specific product names) as given rather than translating them.`;
+}
 
 /* ---------------------------------------------------------------------- */
 /* Brand mark                                                              */
@@ -645,7 +658,7 @@ function Onboarding({ intake, setIntake, onComplete }) {
             <select className="af-input" value={intake.language} onChange={(e) => setIntake((p) => ({ ...p, language: e.target.value }))}>
               {LANGUAGES.map((l) => <option key={l} value={l}>{l}</option>)}
             </select>
-            <p className="af-microhint">Afriforce currently works in English. We're building toward more African languages.</p>
+            <p className="af-microhint">Your Economic Profile, assessments and recommendations will be written in this language. The buttons and menus around them are still English-only for now.</p>
           </div>
         </div>
       )}
@@ -2057,8 +2070,8 @@ export default function App() {
     }
 
     const [profile, opps] = await Promise.all([
-      askAfriforce(SYSTEM, `Based on this person's onboarding answers, generate their Afriforce Economic Profile.\n\n${profileSummary(src)}\n\nRespond as JSON with exactly these keys: strengths (array of 3 short strings), developingSkills (array of up to 3 short strings), skillGaps (array of up to 3 short strings), opportunityAreas (array of 3 short strings, each describing a category of realistic opportunity for this person), recommendedPath (1-2 sentence string summarizing their strongest realistic direction), nextAction (object with title, why, effort, benefit — a single concrete first step, ideally to complete a skill assessment for one of their listed skills, phrased like "Complete your X assessment"), nextActionSkill (the exact skill name from their list that the nextAction refers to, or null).`),
-      askAfriforce(SYSTEM, `Based on this person, find their best opportunities.\n\n${profileSummary(src)}\n\nHere are real listings currently in Afriforce's opportunity store (JSON, may be empty): ${JSON.stringify(realOpportunities).slice(0, 3000)}\n\nFirst, evaluate each real listing honestly against this person — only include ones that are a genuine match at some level (any match level is fine, including "Needs preparation", but don't force a fit that isn't there). Then invent additional clearly-fictional preview opportunities to bring the total to 6.\n\nRespond as JSON: an array of up to 6 objects, each with keys: title, category (one of "Jobs","Freelance","Business","Learning"), matchLevel (one of "Strong match","Good match","Partial match","Needs preparation"), why (1 sentence explaining the fit using their actual skills/experience), have (array of up to 2 skills they already have that are relevant), need (array of up to 2 skills worth strengthening), location (use the real listing's location if from one, otherwise a real city/country near theirs, or "Remote"), remote (boolean), isReal (true only if this came from a real listing provided above, false otherwise), sourceUrl (the real listing's sourceUrl if isReal is true and one was provided, otherwise omit or leave empty).`),
+      askAfriforce(buildSystem(src.language), `Based on this person's onboarding answers, generate their Afriforce Economic Profile.\n\n${profileSummary(src)}\n\nRespond as JSON with exactly these keys: strengths (array of 3 short strings), developingSkills (array of up to 3 short strings), skillGaps (array of up to 3 short strings), opportunityAreas (array of 3 short strings, each describing a category of realistic opportunity for this person), recommendedPath (1-2 sentence string summarizing their strongest realistic direction), nextAction (object with title, why, effort, benefit — a single concrete first step, ideally to complete a skill assessment for one of their listed skills, phrased like "Complete your X assessment"), nextActionSkill (the exact skill name from their list that the nextAction refers to, or null).`),
+      askAfriforce(buildSystem(src.language), `Based on this person, find their best opportunities.\n\n${profileSummary(src)}\n\nHere are real listings currently in Afriforce's opportunity store (JSON, may be empty): ${JSON.stringify(realOpportunities).slice(0, 3000)}\n\nFirst, evaluate each real listing honestly against this person — only include ones that are a genuine match at some level (any match level is fine, including "Needs preparation", but don't force a fit that isn't there). Then invent additional clearly-fictional preview opportunities to bring the total to 6.\n\nRespond as JSON: an array of up to 6 objects, each with keys: title, category (one of "Jobs","Freelance","Business","Learning"), matchLevel (one of "Strong match","Good match","Partial match","Needs preparation"), why (1 sentence explaining the fit using their actual skills/experience), have (array of up to 2 skills they already have that are relevant), need (array of up to 2 skills worth strengthening), location (use the real listing's location if from one, otherwise a real city/country near theirs, or "Remote"), remote (boolean), isReal (true only if this came from a real listing provided above, false otherwise), sourceUrl (the real listing's sourceUrl if isReal is true and one was provided, otherwise omit or leave empty).`),
     ]);
 
     if (profile) {
@@ -2142,7 +2155,7 @@ export default function App() {
     setBizBusy(true);
     setBizIdeas([]);
     setBizError(false);
-    const res = await askAfriforce(SYSTEM, `Someone described what they have available to start a business:\n\n"${bizInput}"\n\n${hasProfile ? profileSummary() : ''}\n\nGenerate 3 realistic, distinct business opportunities they could pursue with what they described. Respond as JSON: an array of 3 objects with keys: title, why (1 sentence on why this fits what they described), targetCustomer, startupCost (a short range/scenario, not a promise), revenueModel (1 short sentence), majorRisks (1 short sentence), first30Days (1-2 sentence plan).`);
+    const res = await askAfriforce(buildSystem(intake.language), `Someone described what they have available to start a business:\n\n"${bizInput}"\n\n${hasProfile ? profileSummary() : ''}\n\nGenerate 3 realistic, distinct business opportunities they could pursue with what they described. Respond as JSON: an array of 3 objects with keys: title, why (1 sentence on why this fits what they described), targetCustomer, startupCost (a short range/scenario, not a promise), revenueModel (1 short sentence), majorRisks (1 short sentence), first30Days (1-2 sentence plan).`);
     if (res) setBizIdeas(res); else setBizError(true);
     setBizBusy(false);
   }
@@ -2150,7 +2163,7 @@ export default function App() {
   async function selectBusinessIdea(idea) {
     setBizSelected(idea);
     setBizFoundationBusy(true);
-    const res = await askAfriforce(SYSTEM, `Someone is building this business idea:\n\nTitle: ${idea.title}\nWhy it fits: ${idea.why}\nTarget customer: ${idea.targetCustomer}\nRevenue model: ${idea.revenueModel}\n\nGenerate a starter business foundation. Respond as JSON: {names: array of 3 short business name ideas, valueProposition: "1-2 sentences", pricingModel: "1-2 sentences with a concrete scenario, labeled as an assumption", marketingIdeas: array of 3 short concrete first steps to get customers, validationSteps: array of 3 short concrete ways to test demand before spending money}.`);
+    const res = await askAfriforce(buildSystem(intake.language), `Someone is building this business idea:\n\nTitle: ${idea.title}\nWhy it fits: ${idea.why}\nTarget customer: ${idea.targetCustomer}\nRevenue model: ${idea.revenueModel}\n\nGenerate a starter business foundation. Respond as JSON: {names: array of 3 short business name ideas, valueProposition: "1-2 sentences", pricingModel: "1-2 sentences with a concrete scenario, labeled as an assumption", marketingIdeas: array of 3 short concrete first steps to get customers, validationSteps: array of 3 short concrete ways to test demand before spending money}.`);
     setBizFoundation(res || {
       names: ['(unavailable — try again)'], valueProposition: '', pricingModel: '', marketingIdeas: [], validationSteps: [],
     });
@@ -2200,7 +2213,7 @@ export default function App() {
     if (!activeBusiness) return;
     setBizInsightBusy(true);
     const { name, metrics } = activeBusiness;
-    const res = await askAfriforce(SYSTEM, `A small business called "${name}" has these numbers this month: revenue $${metrics.revenue}, expenses $${metrics.expenses}, customers ${metrics.customers}. Last month: revenue $${metrics.prevRevenue}, expenses $${metrics.prevExpenses}.\n\nGive a short, honest read on what's happening and one concrete suggestion. Don't fabricate causes you can't see from the numbers — reason only from what's given. Respond as JSON: {insight: "2-3 sentences", suggestion: "1 short concrete action"}.`);
+    const res = await askAfriforce(buildSystem(intake.language), `A small business called "${name}" has these numbers this month: revenue $${metrics.revenue}, expenses $${metrics.expenses}, customers ${metrics.customers}. Last month: revenue $${metrics.prevRevenue}, expenses $${metrics.prevExpenses}.\n\nGive a short, honest read on what's happening and one concrete suggestion. Don't fabricate causes you can't see from the numbers — reason only from what's given. Respond as JSON: {insight: "2-3 sentences", suggestion: "1 short concrete action"}.`);
     setBizInsight(res || { insight: "Couldn't reach Afriforce Intelligence just now.", suggestion: '' });
     setBizInsightBusy(false);
   }
@@ -2210,7 +2223,7 @@ export default function App() {
     setBizAskBusy(true);
     setBizAskAnswer('');
     const { name, metrics, idea } = activeBusiness;
-    const res = await askAfriforce(SYSTEM, `Business: "${name}" (${idea.title}). This month: revenue $${metrics.revenue}, expenses $${metrics.expenses}, customers ${metrics.customers}. Last month: revenue $${metrics.prevRevenue}, expenses $${metrics.prevExpenses}.\n\nThey're asking: "${bizAskText}"\n\nAnswer in 2-3 short, concrete sentences reasoning only from the numbers given — don't invent causes you can't see. Respond as JSON: {answer: "your response"}.`);
+    const res = await askAfriforce(buildSystem(intake.language), `Business: "${name}" (${idea.title}). This month: revenue $${metrics.revenue}, expenses $${metrics.expenses}, customers ${metrics.customers}. Last month: revenue $${metrics.prevRevenue}, expenses $${metrics.prevExpenses}.\n\nThey're asking: "${bizAskText}"\n\nAnswer in 2-3 short, concrete sentences reasoning only from the numbers given — don't invent causes you can't see. Respond as JSON: {answer: "your response"}.`);
     setBizAskAnswer(res?.answer || "Couldn't reach Afriforce Intelligence — try again.");
     setBizAskBusy(false);
   }
@@ -2226,7 +2239,7 @@ export default function App() {
     setFreelanceSkill(skillName);
     setFreelancePkg(null);
     setScreen('freelance');
-    const res = await askAfriforce(SYSTEM, `This person wants to turn their "${skillName}" skill into a freelance service.\n\n${hasProfile ? profileSummary() : `Skill: ${skillName}`}\n\nRespond as JSON: {serviceName: "a short marketable service name", description: "1-2 sentences describing what's offered", pricingScenario: "1-2 sentences with a concrete starting price scenario appropriate to their likely market, labeled as a starting point not a fixed rate", firstSteps: array of 3 short concrete ways to find first clients, proposalDraft: "a short 3-4 sentence draft message they could send a potential client, written in first person"}.`);
+    const res = await askAfriforce(buildSystem(intake.language), `This person wants to turn their "${skillName}" skill into a freelance service.\n\n${hasProfile ? profileSummary() : `Skill: ${skillName}`}\n\nRespond as JSON: {serviceName: "a short marketable service name", description: "1-2 sentences describing what's offered", pricingScenario: "1-2 sentences with a concrete starting price scenario appropriate to their likely market, labeled as a starting point not a fixed rate", firstSteps: array of 3 short concrete ways to find first clients, proposalDraft: "a short 3-4 sentence draft message they could send a potential client, written in first person"}.`);
     setFreelancePkg(res || {
       serviceName: skillName, description: 'Unable to generate right now — try again.',
       pricingScenario: '', firstSteps: [], proposalDraft: '',
@@ -2253,7 +2266,7 @@ export default function App() {
       realProfiles = [];
     }
 
-    const res = await askAfriforce(SYSTEM, `An employer wants to hire for this role:\nTitle: ${employerForm.role}\nIndustry: ${employerForm.industry || 'not specified'}\nRequired skills: ${employerForm.skills.join(', ')}\nLocation: ${employerForm.location || 'not specified'}\nWork model: ${employerForm.workModel}\n\nHere are real member profiles who opted into visibility (JSON, may be empty): ${JSON.stringify(realProfiles).slice(0, 3000)}\n\nFirst, evaluate each real member profile honestly against the role — only include ones that are a genuine match (any match level is fine, including "Needs preparation", but don't force a fit that isn't there). Then invent additional clearly-fictional sample candidate profiles to bring the total to 4, for preview purposes.\n\nRespond as JSON: {jobDescription: {title, summary: "2 sentences", responsibilities: array of 3 short bullet points}, candidates: array of up to 4 objects each with keys name (use the real member's name if from a real profile, otherwise an invented full name), headline, matchLevel (one of "Strong match","Good match","Partial match","Needs preparation"), why (1 sentence), have (array of up to 2 matching skills), need (array of up to 2 gaps), experience ("X years" style short string), availability, isReal (true only if this candidate came from the real member profiles provided above, false otherwise)}.`);
+    const res = await askAfriforce(buildSystem(intake.language), `An employer wants to hire for this role:\nTitle: ${employerForm.role}\nIndustry: ${employerForm.industry || 'not specified'}\nRequired skills: ${employerForm.skills.join(', ')}\nLocation: ${employerForm.location || 'not specified'}\nWork model: ${employerForm.workModel}\n\nHere are real member profiles who opted into visibility (JSON, may be empty): ${JSON.stringify(realProfiles).slice(0, 3000)}\n\nFirst, evaluate each real member profile honestly against the role — only include ones that are a genuine match (any match level is fine, including "Needs preparation", but don't force a fit that isn't there). Then invent additional clearly-fictional sample candidate profiles to bring the total to 4, for preview purposes.\n\nRespond as JSON: {jobDescription: {title, summary: "2 sentences", responsibilities: array of 3 short bullet points}, candidates: array of up to 4 objects each with keys name (use the real member's name if from a real profile, otherwise an invented full name), headline, matchLevel (one of "Strong match","Good match","Partial match","Needs preparation"), why (1 sentence), have (array of up to 2 matching skills), need (array of up to 2 gaps), experience ("X years" style short string), availability, isReal (true only if this candidate came from the real member profiles provided above, false otherwise)}.`);
     if (res) {
       setEmployerJob(res.jobDescription || null);
       setEmployerCandidates(res.candidates || []);
@@ -2284,7 +2297,7 @@ export default function App() {
       });
       return;
     }
-    const res = await askAfriforce(SYSTEM, `This person has assessed all their listed skills and completed ${latestActionsCompleted} action(s) so far.\n\n${profileSummary()}\n\nSuggest their single next best action — something like exploring a specific opportunity, building a portfolio piece, or validating a business idea. Respond as JSON: {title, why, effort, benefit}.`);
+    const res = await askAfriforce(buildSystem(intake.language), `This person has assessed all their listed skills and completed ${latestActionsCompleted} action(s) so far.\n\n${profileSummary()}\n\nSuggest their single next best action — something like exploring a specific opportunity, building a portfolio piece, or validating a business idea. Respond as JSON: {title, why, effort, benefit}.`);
     if (res) setNextAction({ ...res, skillName: null });
   }
 
@@ -2309,13 +2322,13 @@ export default function App() {
     setAssessAnswer('');
     setAssessResult(null);
     setScreen('assessment');
-    const q = await askAfriforce(SYSTEM, `Create a short, realistic practical scenario to test someone's "${name}" skill — the kind of situation they'd actually face doing this work. Respond as JSON: {scenario: "1-2 sentence setup", question: "one direct question asking what they would do"}.`);
+    const q = await askAfriforce(buildSystem(intake.language), `Create a short, realistic practical scenario to test someone's "${name}" skill — the kind of situation they'd actually face doing this work. Respond as JSON: {scenario: "1-2 sentence setup", question: "one direct question asking what they would do"}.`);
     setAssessQuestion(q || { scenario: `Imagine you're using ${name} in a real work situation.`, question: 'What would you do first, and why?' });
   }
 
   async function submitAssessment() {
     setAssessBusy(true);
-    const res = await askAfriforce(SYSTEM, `Skill being assessed: "${assessSkill}".\nScenario given: ${assessQuestion?.scenario} ${assessQuestion?.question}\nTheir answer: "${assessAnswer}"\n\nEvaluate their answer honestly and constructively. Respond as JSON: {level: one of "Beginner","Intermediate","Advanced", demonstrated: "1 sentence on what their answer showed", improve: "1 sentence on what would strengthen it"}.`);
+    const res = await askAfriforce(buildSystem(intake.language), `Skill being assessed: "${assessSkill}".\nScenario given: ${assessQuestion?.scenario} ${assessQuestion?.question}\nTheir answer: "${assessAnswer}"\n\nEvaluate their answer honestly and constructively. Respond as JSON: {level: one of "Beginner","Intermediate","Advanced", demonstrated: "1 sentence on what their answer showed", improve: "1 sentence on what would strengthen it"}.`);
     const result = res || { level: 'Intermediate', demonstrated: 'A reasonable practical approach.', improve: 'Adding more specific detail would help.' };
     setAssessResult(result);
     setAssessBusy(false);
@@ -2336,7 +2349,7 @@ export default function App() {
     if (!askText.trim()) return;
     setAskBusy(true);
     setAskAnswer('');
-    const res = await askAfriforce(SYSTEM, `${profileSummary()}\n\nThey're asking: "${askText}"\n\nAnswer in 2-3 short, concrete, encouraging sentences grounded in what they told you. Respond as JSON: {answer: "your response"}.`);
+    const res = await askAfriforce(buildSystem(intake.language), `${profileSummary()}\n\nThey're asking: "${askText}"\n\nAnswer in 2-3 short, concrete, encouraging sentences grounded in what they told you. Respond as JSON: {answer: "your response"}.`);
     setAskAnswer(res?.answer || "I couldn't reach Afriforce Intelligence just now — try again in a moment.");
     setAskBusy(false);
   }

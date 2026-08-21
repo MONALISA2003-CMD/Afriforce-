@@ -221,8 +221,22 @@ to naturally refresh) before the app sees the new role.
   is an actual live source: a job-board API/scraper (e.g. a ToS-compliant
   aggregator) that calls `POST /api/opportunities` on a schedule — that's
   now a config/integration task, not an architecture rewrite.
-- **No multilingual/voice layer**, despite the architecture in the docs
-  calling for one — English only.
+- **Real AI-generated content in the person's own language.** Every
+  onboarding step already collected a preferred language and did nothing
+  with it — `buildSystem(language)` in `components/AfriforceApp.jsx` now
+  passes it into every AI Gateway call, so the Economic Profile,
+  assessments, opportunities, next actions, business plans and freelance
+  packages are genuinely generated in Swahili, French, Hausa, Yoruba,
+  Amharic, Zulu, Portuguese or Luganda — not translated after the fact,
+  the model writes natively in that language. JSON keys stay in English
+  (the frontend parses them by name); only the values change language.
+- **No multilingual *interface*, though.** Buttons, labels, menus, and
+  every other piece of static UI chrome are still English-only — only
+  the AI-generated content is multilingual. Translating the interface
+  itself is a real i18n project (string extraction, a translation table
+  per language, testing each layout with longer/shorter translated text)
+  that wasn't attempted here — doing it partially or untested would be
+  worse than being upfront that it isn't done. No voice layer either.
 - **No payments/financial integrations** — intentionally out of scope
   per the docs' own phasing (these come after the core loop is proven).
 
