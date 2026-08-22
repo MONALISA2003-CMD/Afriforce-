@@ -322,6 +322,29 @@ function Logo({ size = 34, wordmarkSize = 19, tag }) {
   );
 }
 
+// Renders a user-supplied image (see public/images/README.md for exact
+// filenames/specs) with a graceful branded placeholder if the file
+// doesn't exist yet — so the landing page never looks broken while
+// photography is still being designed. Plain <img>, not next/image:
+// these are static local files with no need for Next's remote-image
+// optimization pipeline, and a plain tag keeps the fallback logic
+// (onError) simple and predictable.
+function ImageSlot({ src, alt, aspectRatio = '4 / 5', className = '' }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div className={`af-imageslot ${className}`} style={{ aspectRatio }}>
+      {!failed ? (
+        <img src={src} alt={alt} onError={() => setFailed(true)} loading="lazy" />
+      ) : (
+        <div className="af-imageslot-placeholder">
+          <LogoMark size={32} />
+          <span>{alt}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------------------------------------------------------------------- */
 /* Small UI atoms                                                         */
 /* ---------------------------------------------------------------------- */
@@ -457,8 +480,8 @@ function Landing({ onStart, onTryPersona, onEmployer, onAdmin }) {
             </button>
           </div>
         </div>
-        <div className="af-hero-visual" aria-hidden="true">
-          <LogoMark size={120} />
+        <div className="af-hero-visual">
+          <ImageSlot src="/images/hero.jpg" alt="Afriforce in use" aspectRatio="4 / 5" />
         </div>
       </div>
 
@@ -488,6 +511,15 @@ function Landing({ onStart, onTryPersona, onEmployer, onAdmin }) {
               {i < steps.length - 1 && <div className="af-line-v" />}
             </React.Fragment>
           ))}
+        </div>
+      </div>
+
+      <div className="af-section">
+        <span className="af-section-eyebrow">Built for real people</span>
+        <div className="af-band-grid">
+          <ImageSlot src="/images/band-1.jpg" alt="Job seekers" aspectRatio="1 / 1" />
+          <ImageSlot src="/images/band-2.jpg" alt="Entrepreneurs" aspectRatio="1 / 1" />
+          <ImageSlot src="/images/band-3.jpg" alt="Employers" aspectRatio="1 / 1" />
         </div>
       </div>
 
@@ -896,6 +928,7 @@ function FreelancePage({ skillName, pkg, onBack }) {
 
 function EmployerIntake({ form, setForm, onSubmit, busy, onBack, error, onViewTeam }) {
   const [skillInput, setSkillInput] = useState('');
+  const [recentSearches, setRecentSearches] = useState(null); // null = not loaded yet, [] = loaded, empty
   const addSkill = (name) => {
     const trimmed = name.trim();
     if (!trimmed || form.skills.includes(trimmed)) return;
@@ -906,6 +939,20 @@ function EmployerIntake({ form, setForm, onSubmit, busy, onBack, error, onViewTe
 
   const canSubmit = form.role.trim() && form.skills.length > 0;
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const headers = await authHeader();
+        const res = await fetch('/api/organizations/searches', { headers });
+        if (!res.ok) { setRecentSearches([]); return; }
+        const data = await res.json();
+        setRecentSearches(data.searches || []);
+      } catch (e) {
+        setRecentSearches([]);
+      }
+    })();
+  }, []);
+
   return (
     <div className="af-screen">
       <button className="af-linklike" onClick={onBack} style={{ marginBottom: 14 }}>← Back to Afriforce</button>
@@ -914,6 +961,20 @@ function EmployerIntake({ form, setForm, onSubmit, busy, onBack, error, onViewTe
         <button className="af-tinylink" onClick={onViewTeam}>My team</button>
       </div>
       <h2 className="af-page-title" style={{ marginTop: 6 }}>What are you hiring for?</h2>
+
+      {recentSearches && recentSearches.length > 0 && (
+        <div className="af-card">
+          <span className="af-label">Recent searches from your team</span>
+          <div className="af-skill-list" style={{ marginTop: 8 }}>
+            {recentSearches.slice(0, 5).map((s) => (
+              <div key={s.id} className="af-admin-member">
+                <strong>{s.role}</strong>
+                <span className="af-skill-meta">{s.candidateCount} candidate{s.candidateCount === 1 ? '' : 's'} \u00b7 searched by {s.searchedBy}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="af-field">
         <label>Role title</label>
@@ -963,6 +1024,28 @@ function EmployerIntake({ form, setForm, onSubmit, busy, onBack, error, onViewTe
 }
 
 function EmployerResults({ jobDescription, candidates, onBack }) {
+  const [savedIds, setSavedIds] = useState(new Set());
+  const [savingIdx, setSavingIdx] = useState(null);
+
+  async function saveToShortlist(c, idx) {
+    setSavingIdx(idx);
+    try {
+      const headers = { 'Content-Type': 'application/json', ...(await authHeader()) };
+      const res = await fetch('/api/organizations/candidates', {
+        method: 'POST', headers,
+        body: JSON.stringify({
+          name: c.name, headline: c.headline, matchLevel: c.matchLevel, why: c.why,
+          forRole: jobDescription?.title, isReal: c.isReal,
+        }),
+      });
+      if (res.ok) setSavedIds((prev) => new Set(prev).add(idx));
+    } catch (e) {
+      // leave unsaved on failure — the button staying actionable is the signal, not a toast
+    } finally {
+      setSavingIdx(null);
+    }
+  }
+
   return (
     <div className="af-screen">
       <button className="af-linklike" onClick={onBack} style={{ marginBottom: 14 }}>← New search</button>
@@ -997,7 +1080,16 @@ function EmployerResults({ jobDescription, candidates, onBack }) {
               <span>{c.experience}</span>
               <span>{c.availability}</span>
             </div>
-            <span className={`af-source-badge ${c.isReal ? 'real' : ''}`}>{c.isReal ? 'Afriforce member' : 'Sample preview'}</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+              <span className={`af-source-badge ${c.isReal ? 'real' : ''}`}>{c.isReal ? 'Afriforce member' : 'Sample preview'}</span>
+              <button
+                className="af-btn af-btn-ghost af-btn-sm"
+                disabled={savedIds.has(i) || savingIdx === i}
+                onClick={() => saveToShortlist(c, i)}
+              >
+                {savingIdx === i ? <Loader2 size={14} className="af-spin" /> : savedIds.has(i) ? 'Saved to team' : 'Save to team shortlist'}
+              </button>
+            </div>
           </div>
         ))}
       </div>
@@ -1010,6 +1102,8 @@ function TeamPage({ onBack }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [shortlist, setShortlist] = useState([]);
+  const [shortlistLoading, setShortlistLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
@@ -1027,6 +1121,17 @@ function TeamPage({ onBack }) {
         setLoading(false);
       }
     })();
+    (async () => {
+      try {
+        const headers = await authHeader();
+        const res = await fetch('/api/organizations/candidates', { headers });
+        if (res.ok) setShortlist((await res.json()).candidates || []);
+      } catch (e) {
+        // leave shortlist empty on failure
+      } finally {
+        setShortlistLoading(false);
+      }
+    })();
   }, []);
 
   function copyCode() {
@@ -1035,6 +1140,16 @@ function TeamPage({ onBack }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }).catch(() => {});
+  }
+
+  async function removeFromShortlist(id) {
+    try {
+      const headers = await authHeader();
+      await fetch(`/api/organizations/candidates/${id}`, { method: 'DELETE', headers });
+      setShortlist((prev) => prev.filter((c) => c.id !== id));
+    } catch (e) {
+      // leave the list as-is on failure
+    }
   }
 
   return (
@@ -1070,8 +1185,30 @@ function TeamPage({ onBack }) {
             </div>
           </div>
 
+          <div className="af-card">
+            <span className="af-label">Shared shortlist ({shortlist.length})</span>
+            {shortlistLoading && <LoadingSequence />}
+            {!shortlistLoading && !shortlist.length && (
+              <p style={{ marginTop: 8 }}>Nobody's saved a candidate yet — do it from any search's results.</p>
+            )}
+            {!shortlistLoading && shortlist.length > 0 && (
+              <div className="af-skill-list" style={{ marginTop: 8 }}>
+                {shortlist.map((c) => (
+                  <div key={c.id} className="af-skill-row">
+                    <div>
+                      <h4>{c.name}</h4>
+                      <p className="af-skill-meta">{c.headline}{c.forRole ? ` \u00b7 for ${c.forRole}` : ''}</p>
+                      <p className="af-skill-meta">Saved by {c.savedBy}</p>
+                    </div>
+                    <button className="af-btn af-btn-ghost af-btn-sm" onClick={() => removeFromShortlist(c.id)}>Remove</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <p className="af-microhint">
-            Everyone in this organization signs in with their own account and password — there's no shared login. Team-wide job postings and shared candidate pipelines aren't built yet; today, membership is the foundation for that.
+            Everyone in this organization signs in with their own account and password — there's no shared login. Search history and shortlisted candidates are shared across the org; a full shared job-postings pipeline isn't built yet.
           </p>
         </>
       )}
@@ -2272,6 +2409,17 @@ export default function App() {
       setEmployerCandidates(res.candidates || []);
       setEmployerError(false);
       setScreen('employer-results');
+      // Best-effort — a failed save shouldn't block showing the results
+      // that already succeeded. Only meaningful for employer accounts
+      // that belong to an org (checked server-side via the orgId claim
+      // anyway, but no point even trying for a solo employer account).
+      if (role === 'employer') {
+        const headers = { 'Content-Type': 'application/json', ...(await authHeader()) };
+        fetch('/api/organizations/searches', {
+          method: 'POST', headers,
+          body: JSON.stringify({ role: employerForm.role, jobDescription: res.jobDescription, candidateCount: (res.candidates || []).length }),
+        }).catch(() => {});
+      }
     } else {
       setEmployerError(true);
     }
@@ -2450,8 +2598,14 @@ export default function App() {
 
         .af-hero { max-width: 1100px; margin: 0 auto; padding: 28px 22px 0; display: flex; align-items: center; gap: 40px; }
         .af-hero-inner { flex: 1 1 480px; min-width: 0; }
-        .af-hero-visual { flex: 0 0 auto; display: none; }
+        .af-hero-visual { flex: 0 0 380px; display: none; }
         .af-eyebrow { font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 13px; color: var(--indigo); letter-spacing: 0.08em; text-transform: uppercase; }
+
+        .af-imageslot { position: relative; overflow: hidden; background: var(--stone); border-radius: 16px; box-shadow: var(--shadow-raised); min-width: 0; }
+        .af-imageslot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .af-imageslot-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 12px; text-align: center; padding: 12px; }
+        .af-band-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .af-band-grid .af-imageslot { box-shadow: var(--shadow-card); border-radius: 12px; }
         .af-h1 { font-size: 32px; line-height: 1.15; color: var(--ink); margin: 14px 0 16px; font-weight: 600; }
         .af-lead { font-size: 15px; margin-bottom: 26px; max-width: 46ch; }
         .af-cta-row { display: flex; flex-wrap: wrap; gap: 10px; }

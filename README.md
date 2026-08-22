@@ -200,14 +200,24 @@ to naturally refresh) before the app sees the new role.
   infrastructure for real invitations yet). The `orgId` is a custom
   claim, checked server-side in `/api/organizations/me` — one org can't
   read another's member list. The "My team" screen shows the invite code
-  and member list. What this doesn't yet do: shared job postings or a
-  shared candidate pipeline across an org's members — see gaps below.
+  and member list.
+- **Shared search history across an organization** — every employer
+  search now saves to `organizations/{orgId}/searches`, and the intake
+  screen shows the team's 5 most recent searches (role, candidate count,
+  who ran it) before you even start a new one. One teammate's work is
+  now visible to the next, not siloed per account.
+- **Shared candidate shortlist** — any candidate from a search can be
+  saved to `organizations/{orgId}/candidates` with one click; the whole
+  org sees it on the "My team" screen (who saved it, for what role), and
+  anyone in the org can remove it. This is the piece search history
+  alone didn't cover: a teammate's actual finding, not just the fact
+  that they searched.
 
 **Known gaps, worth fixing before this handles real users:**
-- **Organizations don't share data yet.** Membership is real, but job
-  searches, saved candidates, and postings are still scoped to the
-  individual account that ran them, not the organization. That's the
-  natural next step on top of the membership model now in place.
+- **Job postings still aren't shared.** Search history and the candidate
+  shortlist are real shared org data now; a posted job the whole org can
+  see and manage together is the remaining piece of "team hiring" this
+  doesn't yet cover.
 - **Rate limiter isn't atomic.** It counts Firestore documents in a time
   window rather than using an atomic counter, so two concurrent requests
   near the boundary could both slip through. Fine for an MVP deploy;
