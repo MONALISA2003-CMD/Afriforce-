@@ -3,9 +3,10 @@
 A real, deployable Next.js app implementing the Afriforce V1 core loop
 (onboarding → economic profile → skills assessment → opportunity radar →
 next-best-action) plus Freelance, Business Builder + Copilot, an Employer
-search, a lightweight talent marketplace, an admin overview, and a real
-(admin-seeded) opportunity store — backed by Firebase (Auth + Firestore)
-and Gemini.
+search with real multi-seat organizations (shared search history,
+candidate shortlist and job postings), a lightweight talent marketplace,
+an admin overview, and a real (admin-seeded) opportunity store — backed
+by Firebase (Auth + Firestore) and Gemini.
 
 ## For anyone evaluating this (e.g. competition judges)
 
@@ -87,10 +88,16 @@ Open http://localhost:3000.
 2. **Build → Authentication → Get started → Sign-in method →
    Email/Password → Enable.**
 3. **Build → Firestore Database → Create database** (Native mode; any
-   region). No security rules to configure — the app never accesses
-   Firestore from the browser, only server-side via the Admin SDK, so the
-   default "locked" rules are fine and are never actually evaluated for
-   this app's traffic.
+   region). Then set the security rules from `firestore.rules` (deny-all
+   — the app never accesses Firestore from the browser, only
+   server-side via the Admin SDK, which bypasses rules entirely, so
+   there's no legitimate reason to leave any collection open to direct
+   client access). Two ways to apply it:
+   - **Console:** Firestore Database → Rules tab → paste the contents of
+     `firestore.rules` → Publish.
+   - **CLI:** `npx firebase-tools deploy --only firestore:rules` (needs
+     `firebase login` and a `firebase.json`/`.firebaserc` pointing at
+     this project — the CLI will offer to generate those if missing).
 4. **Project settings (gear icon) → General → Your apps → Add app → Web.**
    Copy the config values into `NEXT_PUBLIC_FIREBASE_*` in `.env`.
 5. **Project settings → Service accounts → Generate new private key.**
@@ -212,16 +219,25 @@ to naturally refresh) before the app sees the new role.
   anyone in the org can remove it. This is the piece search history
   alone didn't cover: a teammate's actual finding, not just the fact
   that they searched.
+- **Shared job postings** — "Post this job for your team" on any search
+  result saves it to `organizations/{orgId}/jobs`; the whole org sees it
+  on "My team" with who posted it, and can reopen/close or remove it
+  together. This was the last piece of the "team hiring" gap — search
+  history, the candidate shortlist, and job postings are now all
+  genuinely shared org data, not siloed per account.
+- **Atomic rate limiting** — the AI Gateway's per-user limit now uses a
+  Firestore transaction on a single counter document
+  (`users/{uid}/rateLimit/aiGateway`) instead of counting documents in a
+  time window. Firestore serializes concurrent transactions on the same
+  document, which closes the specific race the old approach had (two
+  requests both reading "under the limit" before either recorded
+  itself). See the comment above `checkAndRecordUsage` in
+  `app/api/intelligence/route.js` for the one real caveat that remains
+  (Firestore's own soft write-rate guidance for a single document, far
+  beyond what one user's request rate would hit, but worth knowing if
+  this pattern is reused for a shared/global counter later).
 
 **Known gaps, worth fixing before this handles real users:**
-- **Job postings still aren't shared.** Search history and the candidate
-  shortlist are real shared org data now; a posted job the whole org can
-  see and manage together is the remaining piece of "team hiring" this
-  doesn't yet cover.
-- **Rate limiter isn't atomic.** It counts Firestore documents in a time
-  window rather than using an atomic counter, so two concurrent requests
-  near the boundary could both slip through. Fine for an MVP deploy;
-  swap in a dedicated limiter before this is public.
 - **No real opportunity sourcing yet, but the architecture for it now
   exists.** `app/api/opportunities` is a real Firestore-backed store
   (Firestore collection `opportunities`) — job-seeker matching checks it

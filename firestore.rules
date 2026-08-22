@@ -1,0 +1,43 @@
+rules_version = '2';
+
+// This app never reads or writes Firestore from the browser — the
+// client (lib/firebaseClient.js) only ever imports 'firebase/auth', not
+// 'firebase/firestore'. Every Firestore read/write happens server-side
+// through the Admin SDK (lib/firebaseAdmin.js), which authenticates as
+// a service account and bypasses these rules entirely. That's where
+// this app's actual access control lives: every API route verifies the
+// caller's Firebase ID token and checks their role/orgId claim before
+// touching a document — see app/api/kv/route.js, app/api/organizations/
+// */route.js, etc. for that logic.
+//
+// Given that, the correct rule here is a hard deny-all. There is no
+// legitimate reason for a client-side Firestore SDK call to succeed
+// against this project, so leaving any collection open — even one that
+// looks harmless, like a public read on `opportunities` — would just be
+// an unused door left unlocked. If a future version of this app adds
+// real client-side Firestore access (skipping the API routes for some
+// specific read, for latency reasons or otherwise), the collections
+// that access needs must be opened deliberately, scoped as narrowly as
+// possible, and re-reasoned about here — not defaulted open.
+//
+// Collections this project actually uses (server-side only, for
+// reference — none of them need a rule of their own while access stays
+// entirely server-side):
+//   users/{uid}                                — profile, role, orgId
+//   users/{uid}/records/{key}                   — personal storage (the "profile" blob, etc.)
+//   users/{uid}/rateLimit/aiGateway              — AI Gateway rate-limit counter
+//   sharedRecords/{key}                          — opted-in talent profiles
+//   opportunities/{id}                           — admin-seeded real job listings
+//   organizations/{orgId}                        — org name, invite code, owner
+//   organizations/{orgId}/members/{uid}          — org membership
+//   organizations/{orgId}/searches/{id}          — shared employer search history
+//   organizations/{orgId}/candidates/{id}        — shared candidate shortlist
+//   organizations/{orgId}/jobs/{id}              — shared job postings
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

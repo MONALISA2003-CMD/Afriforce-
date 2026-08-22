@@ -1026,6 +1026,8 @@ function EmployerIntake({ form, setForm, onSubmit, busy, onBack, error, onViewTe
 function EmployerResults({ jobDescription, candidates, onBack }) {
   const [savedIds, setSavedIds] = useState(new Set());
   const [savingIdx, setSavingIdx] = useState(null);
+  const [jobPosted, setJobPosted] = useState(false);
+  const [postingJob, setPostingJob] = useState(false);
 
   async function saveToShortlist(c, idx) {
     setSavingIdx(idx);
@@ -1046,6 +1048,25 @@ function EmployerResults({ jobDescription, candidates, onBack }) {
     }
   }
 
+  async function postJob() {
+    setPostingJob(true);
+    try {
+      const headers = { 'Content-Type': 'application/json', ...(await authHeader()) };
+      const res = await fetch('/api/organizations/jobs', {
+        method: 'POST', headers,
+        body: JSON.stringify({
+          title: jobDescription?.title, summary: jobDescription?.summary,
+          responsibilities: jobDescription?.responsibilities,
+        }),
+      });
+      if (res.ok) setJobPosted(true);
+    } catch (e) {
+      // leave unposted on failure — button stays actionable
+    } finally {
+      setPostingJob(false);
+    }
+  }
+
   return (
     <div className="af-screen">
       <button className="af-linklike" onClick={onBack} style={{ marginBottom: 14 }}>← New search</button>
@@ -1057,6 +1078,9 @@ function EmployerResults({ jobDescription, candidates, onBack }) {
         <ul className="af-bullets" style={{ marginTop: 8 }}>
           {(jobDescription?.responsibilities || []).map((r, i) => <li key={i}>{r}</li>)}
         </ul>
+        <button className="af-btn af-btn-ghost af-btn-sm" style={{ marginTop: 12 }} disabled={jobPosted || postingJob} onClick={postJob}>
+          {postingJob ? <Loader2 size={14} className="af-spin" /> : jobPosted ? 'Posted for your team' : 'Post this job for your team'}
+        </button>
       </div>
 
       <span className="af-label">Matching talent</span>
@@ -1104,6 +1128,8 @@ function TeamPage({ onBack }) {
   const [copied, setCopied] = useState(false);
   const [shortlist, setShortlist] = useState([]);
   const [shortlistLoading, setShortlistLoading] = useState(true);
+  const [jobs, setJobs] = useState([]);
+  const [jobsLoading, setJobsLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
@@ -1132,6 +1158,17 @@ function TeamPage({ onBack }) {
         setShortlistLoading(false);
       }
     })();
+    (async () => {
+      try {
+        const headers = await authHeader();
+        const res = await fetch('/api/organizations/jobs', { headers });
+        if (res.ok) setJobs((await res.json()).jobs || []);
+      } catch (e) {
+        // leave jobs empty on failure
+      } finally {
+        setJobsLoading(false);
+      }
+    })();
   }, []);
 
   function copyCode() {
@@ -1147,6 +1184,29 @@ function TeamPage({ onBack }) {
       const headers = await authHeader();
       await fetch(`/api/organizations/candidates/${id}`, { method: 'DELETE', headers });
       setShortlist((prev) => prev.filter((c) => c.id !== id));
+    } catch (e) {
+      // leave the list as-is on failure
+    }
+  }
+
+  async function toggleJobStatus(job) {
+    const nextStatus = job.status === 'open' ? 'closed' : 'open';
+    try {
+      const headers = { 'Content-Type': 'application/json', ...(await authHeader()) };
+      await fetch(`/api/organizations/jobs/${job.id}`, {
+        method: 'PATCH', headers, body: JSON.stringify({ status: nextStatus }),
+      });
+      setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: nextStatus } : j)));
+    } catch (e) {
+      // leave the list as-is on failure
+    }
+  }
+
+  async function removeJob(id) {
+    try {
+      const headers = await authHeader();
+      await fetch(`/api/organizations/jobs/${id}`, { method: 'DELETE', headers });
+      setJobs((prev) => prev.filter((j) => j.id !== id));
     } catch (e) {
       // leave the list as-is on failure
     }
@@ -1207,8 +1267,33 @@ function TeamPage({ onBack }) {
             )}
           </div>
 
+          <div className="af-card">
+            <span className="af-label">Job postings ({jobs.length})</span>
+            {jobsLoading && <LoadingSequence />}
+            {!jobsLoading && !jobs.length && (
+              <p style={{ marginTop: 8 }}>No jobs posted yet — do it from a search's results page.</p>
+            )}
+            {!jobsLoading && jobs.length > 0 && (
+              <div className="af-skill-list" style={{ marginTop: 8 }}>
+                {jobs.map((j) => (
+                  <div key={j.id} className="af-skill-row">
+                    <div>
+                      <h4>{j.title}</h4>
+                      <p className="af-skill-meta">Posted by {j.postedBy}</p>
+                      <span className={`af-source-badge ${j.status === 'open' ? 'real' : ''}`} style={{ marginTop: 6 }}>{j.status === 'open' ? 'Open' : 'Closed'}</span>
+                    </div>
+                    <div className="af-skill-actions">
+                      <button className="af-btn af-btn-ghost af-btn-sm" onClick={() => toggleJobStatus(j)}>{j.status === 'open' ? 'Close' : 'Reopen'}</button>
+                      <button className="af-btn af-btn-ghost af-btn-sm af-btn-quiet" onClick={() => removeJob(j.id)}>Remove</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <p className="af-microhint">
-            Everyone in this organization signs in with their own account and password — there's no shared login. Search history and shortlisted candidates are shared across the org; a full shared job-postings pipeline isn't built yet.
+            Everyone in this organization signs in with their own account and password — there's no shared login. Search history, the candidate shortlist, and job postings are all shared across the org today.
           </p>
         </>
       )}

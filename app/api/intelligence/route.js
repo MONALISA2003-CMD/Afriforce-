@@ -33,14 +33,49 @@ import { db, verifyRequest } from '@/lib/firebaseAdmin';
 // revisiting later; don't switch without verifying the new shape first.
 const MODEL = 'gemini-3.6-flash';
 
-// Same rate-limiting caveat as before: this counts documents in
-// Firestore rather than using an atomic counter, so it's a best-effort
-// limiter, not an airtight one — two concurrent requests near the
-// boundary could both slip through. Fine for an MVP deploy; swap in a
-// dedicated limiter (e.g. Upstash Redis) before this handles real
-// traffic.
 const RATE_LIMIT_MAX = 60;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
+// Atomic rate limiting via a Firestore transaction on a single counter
+// document per user, rather than the previous approach (query how many
+// usage records exist in a time window, then separately write a new
+// one). That older approach had a real race: two concurrent requests
+// could both read "under the limit" before either had written its own
+// record, letting both through. A transaction closes that specific
+// window — Firestore serializes concurrent transactions that touch the
+// same document (one commits, the other automatically retries against
+// the now-current value), so the read-check-increment here happens as
+// one indivisible step. This is the standard documented Firestore
+// pattern for counters, not a workaround.
+//
+// What this still doesn't give you: cross-region strong consistency
+// guarantees at extreme write rates to the exact same document (a
+// single doc is soft-guided at roughly 1 sustained write/second by
+// Firestore) — far beyond what one user's own request rate would ever
+// hit here, but worth knowing if this pattern gets reused for a
+// higher-contention counter (e.g. a global limit shared by many users)
+// rather than a per-user one.
+async function checkAndRecordUsage(uid) {
+  const counterRef = db.collection('users').doc(uid).collection('rateLimit').doc('aiGateway');
+  const now = Date.now();
+
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(counterRef);
+    const data = snap.exists ? snap.data() : null;
+    const windowStart = data?.windowStart ? new Date(data.windowStart).getTime() : 0;
+    const windowExpired = now - windowStart >= RATE_LIMIT_WINDOW_MS;
+
+    if (!data || windowExpired) {
+      tx.set(counterRef, { windowStart: new Date(now).toISOString(), count: 1 });
+      return { allowed: true, count: 1 };
+    }
+    if (data.count >= RATE_LIMIT_MAX) {
+      return { allowed: false, count: data.count };
+    }
+    tx.update(counterRef, { count: data.count + 1 });
+    return { allowed: true, count: data.count + 1 };
+  });
+}
 
 export async function POST(req) {
   const decoded = await verifyRequest(req);
@@ -76,11 +111,12 @@ export async function POST(req) {
     );
   }
 
-  const usageRef = db.collection('users').doc(decoded.uid).collection('aiUsage');
-  const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
+  // Counts this attempt against the limit before knowing whether the
+  // Gemini call below succeeds — a failed call still costs Google's
+  // quota and this project's spend, so it should still count.
   try {
-    const countSnap = await usageRef.where('createdAt', '>=', windowStart).count().get();
-    if (countSnap.data().count >= RATE_LIMIT_MAX) {
+    const usage = await checkAndRecordUsage(decoded.uid);
+    if (!usage.allowed) {
       return NextResponse.json(
         { error: `Rate limit reached (${RATE_LIMIT_MAX} requests/hour). Try again shortly.` },
         { status: 429 },
@@ -143,10 +179,6 @@ export async function POST(req) {
         }),
       },
     );
-
-    // Record usage regardless of outcome — failed calls still cost quota
-    // pressure and should count against the limit.
-    usageRef.add({ createdAt: new Date().toISOString() }).catch(() => {});
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
